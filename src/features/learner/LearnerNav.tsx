@@ -2,12 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BookOpen, Clock3, Home, Library } from 'lucide-react';
+import { BookOpen, CalendarDays, Clock3, Home, Library } from 'lucide-react';
 
 const items = [
   { href: '/today', label: '오늘', icon: Home },
   { href: '/sets', label: '세트', icon: BookOpen },
   { href: '/sentences', label: '내 문장', icon: Library },
+  { href: '/calendar', label: '달력', icon: CalendarDays },
   { href: '/history', label: '기록', icon: Clock3 },
 ];
 

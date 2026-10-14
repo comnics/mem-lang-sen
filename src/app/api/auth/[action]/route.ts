@@ -3,10 +3,23 @@ import { createClient } from '@/lib/supabase/server';
 import { requireUser, getCurrentUser } from '@/server/auth';
 import { api, HttpError, jsonBody } from '@/server/http';
 import { appOrigin, isConfigured } from '@/server/env';
+import { devLoginEnabled, devLoginCredentials } from '@/server/dev-login';
 const email=z.string().email().max(254);const password=z.string().min(10,'비밀번호는 10자 이상 입력해 주세요.').max(128);
 export const POST=api(async(req,{params})=>{
+ const {action}=await params;
+ if(action==='dev-signin' && !devLoginEnabled()) throw new HttpError(404,'지원하지 않는 요청입니다.');
  if(!isConfigured())throw new HttpError(503,'서비스 연결을 준비하고 있습니다. 잠시 후 이용해 주세요.');
- const {action}=await params;const supabase=await createClient();
+ const supabase=await createClient();
+ if(action==='dev-signin'){
+  const {role}=await jsonBody(req,z.object({role:z.enum(['USER','ADMIN'])}));
+  const credentials=devLoginCredentials(role);
+  if(!credentials)throw new HttpError(503,'개발 계정의 이메일과 비밀번호 환경 변수를 설정해 주세요.');
+  const {error}=await supabase.auth.signInWithPassword(credentials);
+  if(error)throw new HttpError(400,'개발 계정 설정을 확인해 주세요.');
+  const user=await getCurrentUser();
+  if(!user||user.status!=='ACTIVE'||user.role!==role){await supabase.auth.signOut();throw new HttpError(403,'개발 계정의 상태 또는 권한이 일치하지 않습니다.');}
+  return Response.json({redirectTo:user.role==='ADMIN'?'/admin':user.onboarded?'/today':'/onboarding'});
+ }
  if(action==='signout'){await supabase.auth.signOut();return Response.json({redirectTo:'/'});}
  if(action==='signin'){
   const body=await jsonBody(req,z.object({email,password:z.string().min(1).max(128)}));

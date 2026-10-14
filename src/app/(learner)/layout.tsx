@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Settings } from 'lucide-react';
 import { LogoStatic } from '@/components/Logo';
 import { LearnerNav } from '@/features/learner/LearnerNav';
+import { PwaBootstrap } from '@/features/pwa/PwaBootstrap';
 import { requirePageUser } from '@/server/auth';
 
 export default async function LearnerLayout({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -16,6 +17,7 @@ export default async function LearnerLayout({ children }: Readonly<{ children: R
           <span>{user.displayName ?? '설정'}</span>
         </Link>
       </header>
+      <PwaBootstrap />
       <main className="app-main">{children}</main>
       <LearnerNav />
     </div>

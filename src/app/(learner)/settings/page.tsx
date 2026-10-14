@@ -1,6 +1,7 @@
 import { PageHeader } from '@/components/PageHeader';
 import { OnboardingForm } from '@/features/learner/OnboardingForm';
 import { SignOutButton } from '@/features/learner/SignOutButton';
+import { PwaClient } from '@/features/pwa/PwaClient';
 import { requirePageUser } from '@/server/auth';
 import { getStudyPlan } from '@/server/services/scheduling';
 
@@ -20,9 +21,10 @@ export default async function SettingsPage() {
         </div>
         <div className="divider" />
         <div className="button-row">
-          <SignOutButton />
+          <SignOutButton userId={user.id} />
         </div>
       </section>
+      <PwaClient />
       <OnboardingForm displayName={user.displayName} studyPlan={studyPlan} />
     </>
   );

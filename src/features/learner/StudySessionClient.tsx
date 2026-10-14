@@ -1,9 +1,10 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Check, Eye, Lightbulb, Loader2, Mic, Send } from 'lucide-react';
+import { loadOutbox, removeOutboxItem, saveOutboxItem } from '@/lib/outbox';
 import { formatDate } from './format';
 
 type StudyItem = {
@@ -12,10 +13,14 @@ type StudyItem = {
   meaning: string;
   position: number;
   answered: boolean;
+  form?: string;
+  assessmentLocked?: boolean;
 };
 
 type Session = {
   id: string;
+  userId: string;
+  purpose?: string;
   setTitle: string;
   mode: 'WRITTEN' | 'SPOKEN';
   status: 'ACTIVE' | 'COMPLETED' | 'ABANDONED';
@@ -36,6 +41,7 @@ type Result = {
   reviewStep: number | null;
   qualified: boolean;
   reviewReason: string | null;
+  form?: string;
 };
 
 type Reveal = { text: string; audioUrl?: string | null };
@@ -54,12 +60,52 @@ export function StudySessionClient({ session }: { session: Session }) {
   const [reveals, setReveals] = useState<Record<string, Partial<Record<'HINT' | 'ANSWER', Reveal>>>>({});
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [outboxWarning, setOutboxWarning] = useState<string | null>(null);
+  const [outboxCount, setOutboxCount] = useState(0);
+  const pendingRef = useRef<string | null>(null);
+  const retryingRef = useRef(false);
   const item = session.items[index];
   const progress = useMemo(
     () => new Set([...Object.keys(results), ...session.items.filter((entry) => entry.answered).map((entry) => entry.id)]).size,
     [results, session.items],
   );
   const completed = progress >= session.items.length || Object.values(results).some((result) => result.completed);
+
+  useEffect(() => {
+    pendingRef.current = pending;
+  }, [pending]);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      let restored: ReturnType<typeof loadOutbox>;
+      try {
+        restored = loadOutbox(session.userId, session.id);
+      } catch {
+        setOutboxWarning('브라우저 임시 저장소를 읽지 못했습니다. 온라인 제출은 계속 시도합니다.');
+        return;
+      }
+      setOutboxCount(restored.length);
+      if (!restored.length) return;
+      setFrozenSubmissions((current) => {
+        const next = { ...current };
+        for (const entry of restored) next[entry.payload.itemId] = { mode: session.mode, body: entry.payload };
+        return next;
+      });
+      setEventIds((current) => {
+        const next = { ...current };
+        for (const entry of restored) next[entry.payload.itemId] = entry.payload.eventId;
+        return next;
+      });
+    });
+  }, [session.id, session.mode, session.userId]);
+
+  useEffect(() => {
+    async function onOnline() {
+      await retryOutbox();
+    }
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  });
 
   function eventIdFor(itemId: string) {
     const existing = eventIds[itemId];
@@ -113,10 +159,13 @@ export function StudySessionClient({ session }: { session: Session }) {
   }
 
   async function sendAnswer(submission: FrozenSubmission) {
+    if (pendingRef.current) return;
     const pendingKey = submission.mode === 'WRITTEN' ? `ANSWER:${submission.body.itemId}` : `RATE:${submission.body.itemId}`;
+    pendingRef.current = pendingKey;
     setPending(pendingKey);
     setError(null);
     setFrozenSubmissions((current) => ({ ...current, [submission.body.itemId]: submission }));
+    savePendingOutbox(submission);
     try {
       const response = await fetch(`/api/v1/study-sessions/${session.id}/answers`, {
         method: 'POST',
@@ -126,17 +175,20 @@ export function StudySessionClient({ session }: { session: Session }) {
       const data = (await response.json().catch(() => ({}))) as Result & { error?: string };
       if (response.ok) {
         setResults((current) => ({ ...current, [submission.body.itemId]: data }));
+        removePendingOutbox(submission.body.eventId);
         setFrozenSubmissions((current) => removeKey(current, submission.body.itemId));
         return;
       }
       if (response.status === 409) {
         setError(data.error ?? '이미 저장된 답안입니다. 최신 기록을 불러옵니다.');
+        removePendingOutbox(submission.body.eventId);
         setFrozenSubmissions((current) => removeKey(current, submission.body.itemId));
         router.refresh();
         return;
       }
       if (response.status >= 400 && response.status < 500) {
         setError(data.error ?? '입력값을 확인해 주세요.');
+        removePendingOutbox(submission.body.eventId);
         setFrozenSubmissions((current) => removeKey(current, submission.body.itemId));
         return;
       }
@@ -144,8 +196,86 @@ export function StudySessionClient({ session }: { session: Session }) {
     } catch {
       setError('저장 확인이 끝나지 않았습니다. 같은 답안을 다시 전송해 주세요.');
     } finally {
+      pendingRef.current = null;
       setPending(null);
     }
+  }
+
+  async function retryOutbox() {
+    if (pendingRef.current || retryingRef.current) return;
+    retryingRef.current = true;
+    try {
+      const restored = loadSessionOutbox();
+      setOutboxCount(restored.length);
+      for (const entry of restored) {
+        await sendAnswer({ mode: session.mode, body: entry.payload });
+      }
+    } finally {
+      retryingRef.current = false;
+    }
+  }
+
+  function loadSessionOutbox() {
+    try {
+      return loadOutbox(session.userId, session.id);
+    } catch {
+      setOutboxWarning('브라우저 임시 저장소를 읽지 못했습니다. 온라인 제출은 계속 시도합니다.');
+      return [];
+    }
+  }
+
+  function savePendingOutbox(submission: FrozenSubmission) {
+    try {
+      const existing = loadOutbox(session.userId, session.id).find((entry) => entry.payload.eventId === submission.body.eventId);
+      saveOutboxItem({
+        ownerId: session.userId,
+        sessionId: session.id,
+        payload: submission.body,
+        createdAt: existing?.createdAt ?? Date.now(),
+      });
+      setOutboxCount(loadOutbox(session.userId, session.id).length);
+      setOutboxWarning(null);
+    } catch {
+      setOutboxWarning('브라우저 임시 저장소에 대기 제출을 남기지 못했습니다. 네트워크가 연결되어 있으면 제출은 계속 시도합니다.');
+    }
+  }
+
+  function removePendingOutbox(eventId: string) {
+    try {
+      removeOutboxItem(session.userId, session.id, eventId);
+      setOutboxCount(loadOutbox(session.userId, session.id).length);
+      setOutboxWarning(null);
+    } catch {
+      setOutboxWarning('브라우저 임시 저장소를 갱신하지 못했습니다. 설정에서 로그아웃하면 이 기기의 대기 제출을 정리합니다.');
+    }
+  }
+
+  function discardOutbox() {
+    const restored = loadSessionOutbox();
+    for (const entry of restored) removePendingOutbox(entry.payload.eventId);
+    setFrozenSubmissions((current) => {
+      const next = { ...current };
+      for (const entry of restored) delete next[entry.payload.itemId];
+      return next;
+    });
+  }
+
+  function renderOutboxNotice() {
+    if (outboxCount <= 0) return null;
+    return (
+      <div className="notice">
+        <p>저장 확인 대기 중인 제출 {outboxCount}개가 이 기기에 남아 있습니다.</p>
+        <div className="button-row">
+          <button className="button-secondary" type="button" onClick={retryOutbox} disabled={Boolean(pendingRef.current) || retryingRef.current}>
+            {pending || retryingRef.current ? <Loader2 className="spin" size={18} aria-hidden="true" /> : <Send size={18} aria-hidden="true" />}
+            대기 제출 다시 전송
+          </button>
+          <button className="button-ghost" type="button" onClick={discardOutbox} disabled={Boolean(pendingRef.current) || retryingRef.current}>
+            대기 제출 버리기
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (!item) {
@@ -162,6 +292,8 @@ export function StudySessionClient({ session }: { session: Session }) {
       <section className="empty-state">
         <strong>만료된 오늘 학습입니다.</strong>
         <p>새 오늘 학습 큐가 만들어져 이 세션은 더 이상 답안을 받지 않습니다.</p>
+        {renderOutboxNotice()}
+        {outboxWarning ? <p className="notice notice-error" role="alert">{outboxWarning}</p> : null}
         <Link className="button" href="/today">오늘 학습으로 이동</Link>
       </section>
     );
@@ -172,11 +304,13 @@ export function StudySessionClient({ session }: { session: Session }) {
   const frozenSubmission = frozenSubmissions[item.id];
   const answered = item.answered || Boolean(currentResult);
   const lockedForUnresolvedSubmit = Boolean(frozenSubmission) && !answered;
+  const assessmentLocked = Boolean(item.assessmentLocked && !answered);
+  const isApplication = item.form === 'APPLICATION';
 
   return (
     <section className="card stack-lg" aria-live="polite">
       <div className="split-row">
-        <span className="badge">{session.mode === 'WRITTEN' ? '입력 회상' : '말하기 자기확인'}</span>
+        <span className="badge">{isApplication ? '응용 평가' : session.purpose === 'ASSESSMENT' ? '회상 평가' : session.mode === 'WRITTEN' ? '입력 회상' : '말하기 자기확인'}</span>
         <span className="muted">{Math.min(progress, session.items.length)} / {session.items.length}</span>
       </div>
 
@@ -212,11 +346,11 @@ export function StudySessionClient({ session }: { session: Session }) {
             <span>정답이어도 어려웠어요</span>
           </label>
           <div className="button-row">
-            <button className="button-secondary" type="button" onClick={() => reveal('HINT')} disabled={answered || Boolean(pending) || lockedForUnresolvedSubmit}>
+            <button className="button-secondary" type="button" onClick={() => reveal('HINT')} disabled={assessmentLocked || answered || Boolean(pending) || lockedForUnresolvedSubmit}>
               {pending === `HINT:${item.id}` ? <Loader2 className="spin" size={18} aria-hidden="true" /> : <Lightbulb size={18} aria-hidden="true" />}
               힌트
             </button>
-            <button className="button-secondary" type="button" onClick={() => reveal('ANSWER')} disabled={answered || Boolean(pending) || lockedForUnresolvedSubmit}>
+            <button className="button-secondary" type="button" onClick={() => reveal('ANSWER')} disabled={assessmentLocked || answered || Boolean(pending) || lockedForUnresolvedSubmit}>
               <Eye size={18} aria-hidden="true" /> 답 보기
             </button>
             <button className="button" type="button" onClick={submitWritten} disabled={answered || (!frozenSubmission && !answers[item.id]?.trim()) || Boolean(pending)}>
@@ -255,6 +389,8 @@ export function StudySessionClient({ session }: { session: Session }) {
       )}
 
       {item.answered && !currentResult ? <p className="notice">이미 서버에 기록된 문장입니다. 다시 제출하지 않도록 잠가 두었습니다.</p> : null}
+      {renderOutboxNotice()}
+      {outboxWarning ? <p className="notice notice-error" role="alert">{outboxWarning}</p> : null}
       {lockedForUnresolvedSubmit ? (
         <p className="notice" role="status">
           저장 확인 중 — 같은 답안 다시 전송
@@ -280,14 +416,20 @@ export function StudySessionClient({ session }: { session: Session }) {
           <p lang="en">{currentResult.target}</p>
           <p>{currentResult.explanation}</p>
           <p className="muted">
-            {currentResult.nextDueAt
+            {currentResult.form === 'APPLICATION' || currentResult.reviewReason === 'assessment-result'
+              ? '평가 결과로만 저장했습니다.'
+              : currentResult.nextDueAt
               ? `다음 예정 ${formatDate(currentResult.nextDueAt, session.timezone)}`
               : '다음 일정은 아직 배정되지 않았습니다.'}
           </p>
-          <p className="muted">
-            복습 단계 {currentResult.reviewStep ?? 0} · 지연 회상 {currentResult.qualified ? '인정' : '미인정'}
-            {currentResult.reviewReason ? ` · ${reviewReasonCopy(currentResult.reviewReason)}` : ''}
-          </p>
+          {currentResult.form === 'APPLICATION' || currentResult.reviewReason === 'assessment-result' ? (
+            <p className="muted">{currentResult.reviewReason ? reviewReasonCopy(currentResult.reviewReason) : '평가 기록'}</p>
+          ) : (
+            <p className="muted">
+              복습 단계 {currentResult.reviewStep ?? 0} · 지연 회상 {currentResult.qualified ? '인정' : '미인정'}
+              {currentResult.reviewReason ? ` · ${reviewReasonCopy(currentResult.reviewReason)}` : ''}
+            </p>
+          )}
           {currentResult.audioUrl ? <audio controls src={currentResult.audioUrl}>오디오를 재생할 수 없습니다.</audio> : null}
         </div>
       ) : null}
@@ -329,6 +471,8 @@ function reviewReasonCopy(reason: string) {
   if (reason === 'written-recent-exposure') return '최근 본 문장이라 시간을 두고 다시 확인합니다';
   if (reason === 'spoken-again') return '말하기 자기확인을 하루 뒤 다시 진행합니다';
   if (reason.startsWith('spoken-')) return '말하기는 별도 자기확인 일정으로 기록합니다';
+  if (reason === 'application-result') return '응용 문항 결과로 기록했습니다';
+  if (reason === 'assessment-result') return '유지 평가 결과로 기록했습니다';
   return '다음 복습 일정을 반영했습니다';
 }
 

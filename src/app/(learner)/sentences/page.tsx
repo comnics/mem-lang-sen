@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { EmptyState } from '@/components/EmptyState';
 import { PageHeader } from '@/components/PageHeader';
 import { formatDate } from '@/features/learner/format';
+import { SentenceRecordsClient } from '@/features/learner/SentenceRecordsClient';
 import { requirePageUser } from '@/server/auth';
 import { getMySentences } from '@/server/services/learning';
 import { getStudyPlan } from '@/server/services/scheduling';
@@ -29,6 +30,13 @@ export default async function SentencesPage() {
               <span className="muted">최근 연습 {formatDate(sentence.lastPracticedAt, plan?.timezone)}</span>
               <span className="muted">다음 예정 {formatDate(sentence.dueAt, plan?.timezone)}</span>
               <span className="muted">복습 단계 {sentence.reviewStep} · 지연 회상 {sentence.qualifiedRecallCount}회</span>
+              <div className="button-row">
+                {sentence.verified ? <span className="badge">지연 회상 확인 이력</span> : null}
+                {'maintained' in sentence && sentence.maintained ? <span className="badge">유지 확인 이력</span> : null}
+                {sentence.selfReportedMemorized ? <span className="badge badge-accent">내 체크</span> : null}
+                {sentence.hidden ? <span className="badge">숨김</span> : null}
+              </div>
+              <SentenceRecordsClient sentence={sentence} />
             </article>
           ))}
         </section>

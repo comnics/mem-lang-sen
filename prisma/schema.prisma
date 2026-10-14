@@ -102,13 +102,17 @@ model AppUser {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
-  enrollments        Enrollment[]
-  studyPlan          StudyPlan?
-  sessions           StudySession[]
-  reviewEvents       ReviewEvent[]
-  exposureEvents     ExposureEvent[]
-  sentenceStates     UserSentenceState[]
-  sentencePreference UserSentencePreference[]
+  enrollments            Enrollment[]
+  studyPlan              StudyPlan?
+  sessions               StudySession[]
+  reviewEvents           ReviewEvent[]
+  exposureEvents         ExposureEvent[]
+  sentenceStates         UserSentenceState[]
+  sentencePreference     UserSentencePreference[]
+  assessmentCohorts      AssessmentCohort[]
+  reports                ContentReport[]
+  pushSubscriptions      PushSubscription[]
+  notificationPreference NotificationPreference?
 
   @@schema("app")
 }
@@ -130,17 +134,18 @@ model StudyPlan {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  user AppUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       AppUser             @relation(fields: [userId], references: [id], onDelete: Cascade)
   exceptions ScheduleException[]
 
   @@schema("app")
 }
 
 model ScheduleException {
-  userId String @db.Uuid
-  date String
-  kind String
-  plan StudyPlan @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  userId String    @db.Uuid
+  date   String
+  kind   String
+  plan   StudyPlan @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
   @@id([userId, date])
   @@schema("app")
 }
@@ -164,15 +169,16 @@ model Sentence {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  versions        SentenceVersion[]
-  states          UserSentenceState[]
-  userPreferences UserSentencePreference[]
+  versions          SentenceVersion[]
+  states            UserSentenceState[]
+  userPreferences   UserSentencePreference[]
+  assessmentCohorts AssessmentCohort[]
 
   @@schema("app")
 }
 
 model SentenceVersion {
-  id              String       @id @default(cuid())
+  id              String        @id @default(cuid())
   sentenceId      String
   versionNumber   Int
   prompt          String
@@ -181,16 +187,18 @@ model SentenceVersion {
   acceptedAnswers String[]
   hint            String
   explanation     String
-  language        String       @default("en")
+  language        String        @default("en")
   level           ContentLevel
   status          ContentStatus @default(DRAFT)
   audioAssetId    String?
   createdAt       DateTime      @default(now())
 
-  sentence     Sentence      @relation(fields: [sentenceId], references: [id], onDelete: Restrict)
-  audioAsset   AudioAsset?   @relation(fields: [audioAssetId], references: [id], onDelete: SetNull)
-  setSentences SetSentence[]
-  sessionItems SessionItem[]
+  sentence             Sentence              @relation(fields: [sentenceId], references: [id], onDelete: Restrict)
+  audioAsset           AudioAsset?           @relation(fields: [audioAssetId], references: [id], onDelete: SetNull)
+  setSentences         SetSentence[]
+  sessionItems         SessionItem[]
+  applicationQuestions ApplicationQuestion[]
+  reports              ContentReport[]
 
   @@unique([sentenceId, versionNumber])
   @@index([status, level])
@@ -264,22 +272,26 @@ model StudySession {
 }
 
 model SessionItem {
-  id                String   @id @default(cuid())
-  sessionId         String
-  sentenceVersionId String
-  sentenceId        String
-  prompt            String
-  meaning           String
-  position          Int
-  createdAt         DateTime @default(now())
-  dueAt             DateTime?
-  scheduledAt       DateTime?
-  estimatedSeconds  Int      @default(30)
+  id                    String    @id @default(cuid())
+  sessionId             String
+  sentenceVersionId     String
+  sentenceId            String
+  prompt                String
+  meaning               String
+  position              Int
+  createdAt             DateTime  @default(now())
+  dueAt                 DateTime?
+  scheduledAt           DateTime?
+  estimatedSeconds      Int       @default(30)
+  form                  String    @default("RECALL")
+  applicationQuestionId String?
 
-  session         StudySession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  sentenceVersion SentenceVersion @relation(fields: [sentenceVersionId], references: [id], onDelete: Restrict)
-  reviewEvent     ReviewEvent?
-  exposures       ExposureEvent[]
+  session             StudySession           @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sentenceVersion     SentenceVersion        @relation(fields: [sentenceVersionId], references: [id], onDelete: Restrict)
+  reviewEvent         ReviewEvent?
+  exposures           ExposureEvent[]
+  applicationQuestion ApplicationQuestion?   @relation(fields: [applicationQuestionId], references: [id], onDelete: Restrict)
+  assessments         AssessmentAssignment[]
 
   @@unique([sessionId, position])
   @@index([sessionId])
@@ -287,30 +299,32 @@ model SessionItem {
 }
 
 model ReviewEvent {
-  id              String       @id @default(cuid())
-  userId          String       @db.Uuid
-  sessionItemId   String       @unique
-  eventId         String       @db.Uuid
-  answer          String?
-  selfRating      SelfRating?
-  result          ReviewResult
-  correct         Boolean?
-  targetSnapshot  String
-  acceptedAnswers String[]
-  explanation     String
-  assisted        Boolean      @default(false)
-  hard            Boolean      @default(false)
-  qualified       Boolean      @default(false)
-  policyVersion   String?
-  reviewStep      Int?
-  reviewReason    String?
-  dueAt           DateTime?
-  scheduledAt     DateTime?
-  nextDueAt       DateTime?
-  performedAt     DateTime     @default(now())
-  studyDate       String?
-  timezone        String?
-  createdAt       DateTime     @default(now())
+  id               String       @id @default(cuid())
+  userId           String       @db.Uuid
+  sessionItemId    String       @unique
+  eventId          String       @db.Uuid
+  answer           String?
+  selfRating       SelfRating?
+  result           ReviewResult
+  correct          Boolean?
+  targetSnapshot   String
+  acceptedAnswers  String[]
+  explanation      String
+  assisted         Boolean      @default(false)
+  hard             Boolean      @default(false)
+  form             String       @default("RECALL")
+  exposureGapHours Float?
+  qualified        Boolean      @default(false)
+  policyVersion    String?
+  reviewStep       Int?
+  reviewReason     String?
+  dueAt            DateTime?
+  scheduledAt      DateTime?
+  nextDueAt        DateTime?
+  performedAt      DateTime     @default(now())
+  studyDate        String?
+  timezone         String?
+  createdAt        DateTime     @default(now())
 
   user AppUser     @relation(fields: [userId], references: [id], onDelete: Cascade)
   item SessionItem @relation(fields: [sessionItemId], references: [id], onDelete: Cascade)
@@ -336,21 +350,21 @@ model ExposureEvent {
 }
 
 model UserSentenceState {
-  userId           String       @db.Uuid
-  sentenceId       String
-  mode             StudyMode
-  lastResult       ReviewResult
-  lastPracticedAt  DateTime
-  correctCount     Int          @default(0)
-  incorrectCount   Int          @default(0)
-  assistedCount    Int          @default(0)
-  selfReportedGood Int          @default(0)
-  version          Int          @default(1)
-  policyVersion    String       @default("relative-v1")
-  reviewStep       Int          @default(0)
-  dueAt            DateTime?
-  qualifiedRecallCount Int      @default(0)
-  lastQualifiedAt  DateTime?
+  userId               String       @db.Uuid
+  sentenceId           String
+  mode                 StudyMode
+  lastResult           ReviewResult
+  lastPracticedAt      DateTime
+  correctCount         Int          @default(0)
+  incorrectCount       Int          @default(0)
+  assistedCount        Int          @default(0)
+  selfReportedGood     Int          @default(0)
+  version              Int          @default(1)
+  policyVersion        String       @default("relative-v1")
+  reviewStep           Int          @default(0)
+  dueAt                DateTime?
+  qualifiedRecallCount Int          @default(0)
+  lastQualifiedAt      DateTime?
 
   user     AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
   sentence Sentence @relation(fields: [sentenceId], references: [id], onDelete: Restrict)
@@ -361,16 +375,155 @@ model UserSentenceState {
 }
 
 model UserSentencePreference {
-  userId     String   @db.Uuid
-  sentenceId String
-  hidden     Boolean  @default(false)
-  lastExposedAt DateTime?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  userId                String    @db.Uuid
+  sentenceId            String
+  hidden                Boolean   @default(false)
+  note                  String    @default("")
+  selfReportedMemorized Boolean   @default(false)
+  lastExposedAt         DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   user     AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
   sentence Sentence @relation(fields: [sentenceId], references: [id], onDelete: Restrict)
 
   @@id([userId, sentenceId])
+  @@schema("app")
+}
+
+model AssessmentCohort {
+  id                String                 @id @default(cuid())
+  userId            String                 @db.Uuid
+  sentenceId        String
+  selectedAt        DateTime               @default(now())
+  startedAt         DateTime?
+  baselineVersionId String?
+  user              AppUser                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sentence          Sentence               @relation(fields: [sentenceId], references: [id], onDelete: Cascade)
+  assignments       AssessmentAssignment[]
+
+  @@unique([userId, sentenceId])
+  @@schema("app")
+}
+
+model AssessmentAssignment {
+  id                 String           @id @default(cuid())
+  cohortId           String
+  kind               String
+  periodKey          String
+  opensAt            DateTime
+  dueAt              DateTime
+  closesAt           DateTime
+  sessionItemId      String?
+  answeredAt         DateTime?
+  result             String?
+  inWindow           Boolean?
+  exposureGapHours   Float?
+  interveningReviews Int?
+  cohort             AssessmentCohort @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  item               SessionItem?     @relation(fields: [sessionItemId], references: [id], onDelete: SetNull)
+
+  @@unique([cohortId, kind, periodKey])
+  @@index([opensAt, answeredAt])
+  @@schema("app")
+}
+
+model ApplicationQuestion {
+  id                String          @id @default(cuid())
+  sentenceVersionId String
+  prompt            String
+  meaning           String
+  target            String
+  acceptedAnswers   String[]
+  explanation       String
+  status            ContentStatus   @default(DRAFT)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  sentenceVersion   SentenceVersion @relation(fields: [sentenceVersionId], references: [id], onDelete: Cascade)
+  items             SessionItem[]
+
+  @@schema("app")
+}
+
+model ContentReport {
+  id                String          @id @default(cuid())
+  userId            String          @db.Uuid
+  sentenceVersionId String
+  reason            String
+  detail            String
+  status            String          @default("OPEN")
+  resolution        String          @default("")
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  user              AppUser         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sentenceVersion   SentenceVersion @relation(fields: [sentenceVersionId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@schema("app")
+}
+
+model PushSubscription {
+  id         String                 @id @default(cuid())
+  userId     String                 @db.Uuid
+  endpoint   String                 @unique
+  p256dh     String
+  auth       String
+  enabled    Boolean                @default(true)
+  createdAt  DateTime               @default(now())
+  updatedAt  DateTime               @updatedAt
+  user       AppUser                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries NotificationDelivery[]
+
+  @@index([userId, enabled])
+  @@schema("app")
+}
+
+model NotificationPreference {
+  userId     String  @id @db.Uuid
+  enabled    Boolean @default(false)
+  quietStart String  @default("22:00")
+  quietEnd   String  @default("08:00")
+  user       AppUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@schema("app")
+}
+
+model NotificationDelivery {
+  id             String           @id @default(cuid())
+  subscriptionId String
+  deliveryKey    String           @unique
+  scheduledAt    DateTime
+  expiresAt      DateTime
+  status         String           @default("PENDING")
+  attempts       Int              @default(0)
+  leaseUntil     DateTime?
+  leaseToken     String?
+  nextAttemptAt  DateTime         @default(now())
+  sentAt         DateTime?
+  lastError      String?
+  createdAt      DateTime         @default(now())
+  subscription   PushSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@schema("app")
+}
+
+model JobRun {
+  id         String    @id @default(cuid())
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  status     String
+  scanned    Int       @default(0)
+  sent       Int       @default(0)
+  failed     Int       @default(0)
+
+  @@schema("app")
+}
+
+model JobCursor {
+  name       String   @id
+  lastUserId String?
+  updatedAt  DateTime @updatedAt
+
   @@schema("app")
 }

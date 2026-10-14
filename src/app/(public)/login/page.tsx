@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { AuthForm } from '@/features/learner/AuthForm';
 import { Logo } from '@/components/Logo';
 import { PageHeader } from '@/components/PageHeader';
+import { DevLoginButtons } from '@/features/learner/DevLoginButtons';
+import { devLoginEnabled } from '@/server/dev-login';
 
 const reasonCopy: Record<string, string> = {
   expired: '인증 링크가 만료되었거나 이미 사용되었습니다. 메일을 다시 요청해 주세요.',
@@ -23,6 +25,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
       </PageHeader>
       <AuthForm mode="signin" initialMessage={reason ? reasonCopy[reason] : null} />
       <Link className="button-ghost" href="/forgot-password">비밀번호를 잊으셨나요?</Link>
+      {devLoginEnabled() ? <DevLoginButtons /> : null}
     </main>
   );
 }

@@ -1,4 +1,4 @@
-name: Verify M0-M4
+name: Verify M0-M6
 on:
   push:
   pull_request:

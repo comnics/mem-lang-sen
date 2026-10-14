@@ -10,7 +10,7 @@ export async function isDailySessionUsable(
   sentenceIds: string[],
   now: Date,
 ) {
-  if (session.purpose !== 'DAILY') return true;
+  if (!['DAILY', 'ASSESSMENT'].includes(session.purpose)) return true;
   const plan = await tx.studyPlan.findUnique({ where: { userId } });
   if (!plan || plan.paused || plan.timezone !== session.timezone || session.studyDate !== localDate(now, plan.timezone)) return false;
   const [memberships, hidden] = await Promise.all([

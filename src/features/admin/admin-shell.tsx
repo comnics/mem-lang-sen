@@ -2,13 +2,16 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { FileUp, Gauge, LibraryBig, ListChecks } from 'lucide-react';
+import { FileQuestion, FileUp, Gauge, LibraryBig, ListChecks, ShieldCheck, Siren } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 const navItems = [
   { href: '/admin', label: '개요', icon: Gauge },
   { href: '/admin/sets', label: '세트 관리', icon: LibraryBig },
   { href: '/admin/sentences', label: '문장 관리', icon: ListChecks },
+  { href: '/admin/application-questions', label: '응용 문항', icon: FileQuestion },
+  { href: '/admin/reports', label: '신고', icon: Siren },
+  { href: '/admin/quality', label: '품질', icon: ShieldCheck },
   { href: '/admin/imports', label: 'CSV 가져오기', icon: FileUp },
 ];
 
@@ -26,7 +29,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
           <nav aria-label="관리자 메뉴" className="mt-4 flex gap-2 overflow-x-auto pb-1 md:mt-8 md:flex-col md:overflow-visible md:pb-0">
             {navItems.map((item) => {
               const Icon = item.icon;
-              const active = pathname === item.href;
+              const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
 
               return (
                 <Link

@@ -27,7 +27,7 @@ export async function updateStudyPlan(userId: string, input: StudyPlanInput, now
     if (exceptions.length) await tx.scheduleException.createMany({ data: exceptions.map((exception) => ({ userId, ...exception })) });
     await tx.appUser.update({ where: { id: userId }, data: { displayName: data.displayName, onboarded: true } });
     // Rebuild future allocations after a rule/budget change; submitted events stay immutable.
-    await tx.studySession.updateMany({ where: { userId, purpose: 'DAILY', status: 'ACTIVE' }, data: { status: 'ABANDONED' } });
+    await tx.studySession.updateMany({ where: { userId, purpose: { in: ['DAILY', 'ASSESSMENT'] }, status: 'ACTIVE' }, data: { status: 'ABANDONED' } });
     return { ok: true };
   });
 }
@@ -51,7 +51,7 @@ export async function createTodaySession(userId: string, mode: StudyMode = 'WRIT
     if (invalidSessionIds.length) await tx.studySession.updateMany({ where: { userId, id: { in: invalidSessionIds }, status: 'ACTIVE' }, data: { status: 'ABANDONED' } });
     if (dto.activeSessionId) return { id: dto.activeSessionId };
     if (!selected.length) throw new HttpError(409, '지금 배정할 학습이 없습니다. 오늘 화면에서 다음 일정을 확인해 주세요.');
-    await tx.studySession.updateMany({ where: { userId, purpose: 'DAILY', status: 'ACTIVE', OR: [{ studyDate: { not: dto.localDate } }, { timezone: { not: dto.timezone } }] }, data: { status: 'ABANDONED' } });
+    await tx.studySession.updateMany({ where: { userId, purpose: { in: ['DAILY', 'ASSESSMENT'] }, status: 'ACTIVE', OR: [{ studyDate: { not: dto.localDate } }, { timezone: { not: dto.timezone } }] }, data: { status: 'ABANDONED' } });
     if (dto.recovery) await tx.studyPlan.updateMany({ where: { userId }, data: { recoveryDate: dto.localDate } });
     const session = await tx.studySession.create({
       data: {
@@ -88,7 +88,7 @@ async function buildQueue(tx: Database, userId: string, mode: StudyMode, now: Da
     tx.userSentenceState.findMany({ where: { userId, mode } }),
     tx.userSentencePreference.findMany({ where: { userId } }),
     tx.reviewEvent.findMany({ where: { userId, performedAt: { gte: start, lt: end } }, include: { item: true } }),
-    tx.studySession.findMany({ where: { userId, purpose: 'DAILY', status: 'ACTIVE', studyDate: today, timezone: plan.timezone }, orderBy: { createdAt: 'asc' }, include: { items: { where: { reviewEvent: null } } } }),
+    tx.studySession.findMany({ where: { userId, purpose: { in: ['DAILY', 'ASSESSMENT'] }, status: 'ACTIVE', studyDate: today, timezone: plan.timezone }, orderBy: { createdAt: 'asc' }, include: { items: { where: { reviewEvent: null } } } }),
     tx.reviewEvent.findFirst({ where: { userId }, orderBy: { performedAt: 'desc' }, select: { performedAt: true } }),
   ]);
   const recovery = storedPlan?.recoveryDate === today || Boolean(lastEvent && now.getTime() - lastEvent.performedAt.getTime() >= 7 * DAY);

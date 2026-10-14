@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowRight, BookOpenCheck } from 'lucide-react';
+import { ArrowRight, BookOpenCheck, CalendarDays, ClipboardCheck } from 'lucide-react';
 import { EmptyState } from '@/components/EmptyState';
 import { PageHeader } from '@/components/PageHeader';
 import { TodayQueueClient } from '@/features/learner/TodayQueueClient';
@@ -40,6 +40,19 @@ export default async function TodayPage() {
           오늘 학습 큐는 요일, 주기, 학습 시간을 저장한 뒤 만들어집니다.
         </EmptyState>
       )}
+
+      <section className="grid-2">
+        <Link className="list-row" href="/assessments">
+          <ClipboardCheck size={20} aria-hidden="true" />
+          <strong>평가로 확인하기</strong>
+          <span className="muted">주간 응용과 7/30일 유지 평가</span>
+        </Link>
+        <Link className="list-row" href="/calendar">
+          <CalendarDays size={20} aria-hidden="true" />
+          <strong>달력 보기</strong>
+          <span className="muted">날짜별 학습·평가 상태</span>
+        </Link>
+      </section>
 
       {dashboard.enrolledSets === 0 ? (
         <EmptyState

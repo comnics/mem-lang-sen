@@ -1,8 +1,11 @@
 import { config } from 'dotenv';
 import { Client } from 'pg';
 import { createClient } from '@supabase/supabase-js';
+import { remoteProjectArgument, validatePlatformEnvironment } from './platform/environment';
 config({ path: '.env.local', quiet: true });
 config({ quiet: true });
+const databaseOnly = process.argv.includes('--database-only');
+if (!databaseOnly) validatePlatformEnvironment(process.env, remoteProjectArgument());
 const runtime = new URL(process.env.DATABASE_URL!);
 if (decodeURIComponent(runtime.username).split('.')[0] !== 'app_runtime') throw new Error('DATABASE_URL must use the dedicated app_runtime role.');
 const password = decodeURIComponent(runtime.password);
@@ -29,6 +32,10 @@ try {
   await client.query('COMMIT');
 } catch (error) { await client.query('ROLLBACK'); throw error; }
 finally { await client.end(); }
+if (databaseOnly) {
+  console.log('Restricted app_runtime role configured; Storage was not changed.');
+  process.exit(0);
+}
 const storage = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SECRET_KEY!, { auth: { persistSession: false } }).storage;
 const { data, error } = await storage.listBuckets();
 if (error) throw error;

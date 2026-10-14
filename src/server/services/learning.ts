@@ -1,5 +1,6 @@
 import 'server-only';
 import { Prisma } from '@/generated/prisma/client';
+import { masteryEvidence } from '@/domain/mastery';
 import { gradeWrittenAnswer } from '@/domain/grading';
 import { computeReview, REVIEW_POLICY_VERSION } from '@/domain/review';
 import { localDate } from '@/domain/scheduling';
@@ -7,6 +8,7 @@ import { db } from '@/server/db';
 import { HttpError } from '@/server/http';
 import { signedAudioUrl } from './content';
 import { isDailySessionUsable } from './daily-session';
+import { registerCohort, recordAssessmentAnswer } from './assessments';
 
 export { getStudyPlan, updateStudyPlan } from './scheduling';
 
@@ -45,7 +47,7 @@ export async function getHistory(userId: string) {
 }
 
 export async function getMySentences(userId: string) {
-  const [states, events] = await Promise.all([
+  const [states, events, preferences, qualifiedEvents] = await Promise.all([
     db.userSentenceState.findMany({
       where: { userId },
       orderBy: { lastPracticedAt: 'desc' },
@@ -55,22 +57,34 @@ export async function getMySentences(userId: string) {
       orderBy: { createdAt: 'desc' },
       include: { item: { include: { session: true, sentenceVersion: true } } },
     }),
+    db.userSentencePreference.findMany({ where: { userId } }),
+    db.reviewEvent.findMany({
+      where: { userId, qualified: true, item: { session: { mode: 'WRITTEN' } } },
+      include: { item: true },
+      orderBy: { performedAt: 'asc' },
+    }),
   ]);
-  const practicedVersionByState = new Map<string, { prompt: string; meaning: string }>();
+  const practicedVersionByState = new Map<string, { id: string; prompt: string; meaning: string }>();
   for (const event of events) {
+    if (event.form !== 'RECALL') continue;
     const key = sentenceStateKey(event.item.sentenceId, event.item.session.mode);
     if (!practicedVersionByState.has(key)) {
       practicedVersionByState.set(key, {
+        id: event.item.sentenceVersion.id,
         prompt: event.item.sentenceVersion.prompt,
         meaning: event.item.sentenceVersion.meaning,
       });
     }
   }
+  const preferenceBySentence = new Map(preferences.map((preference) => [preference.sentenceId, preference]));
+  const verifiedBySentence = verifiedSentenceIds(qualifiedEvents);
   return states.map((state) => {
     const version = practicedVersionByState.get(sentenceStateKey(state.sentenceId, state.mode));
+    const preference = preferenceBySentence.get(state.sentenceId);
     return {
       id: sentenceStateKey(state.sentenceId, state.mode),
       sentenceId: state.sentenceId,
+      sentenceVersionId: version?.id ?? null,
       mode: state.mode,
       prompt: version?.prompt ?? '',
       meaning: version?.meaning ?? '',
@@ -79,6 +93,11 @@ export async function getMySentences(userId: string) {
       dueAt: state.dueAt?.toISOString() ?? null,
       reviewStep: state.reviewStep,
       qualifiedRecallCount: state.qualifiedRecallCount,
+      note: preference?.note ?? '',
+      hidden: preference?.hidden ?? false,
+      selfReportedMemorized: preference?.selfReportedMemorized ?? false,
+      verified: state.mode === 'WRITTEN' && Boolean(verifiedBySentence.get(state.sentenceId)?.verifiedAt),
+      maintained: state.mode === 'WRITTEN' && Boolean(verifiedBySentence.get(state.sentenceId)?.maintainedAt),
     };
   });
 }
@@ -89,11 +108,14 @@ export async function enrollSet(userId: string, setId: string) {
   return db.$transaction(
     async (tx) => {
       await lockUser(tx, userId);
-      return tx.enrollment.upsert({
+      const enrollment = await tx.enrollment.upsert({
         where: { userId_setId: { userId, setId } },
         update: {},
         create: { userId, setId },
       });
+      const members = await tx.setSentence.findMany({ where: { setId }, select: { sentenceVersion: { select: { sentenceId: true } } } });
+      await registerCohort(tx, userId, members.map((member) => member.sentenceVersion.sentenceId), new Date());
+      return enrollment;
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
   );
@@ -104,7 +126,7 @@ export async function unenrollSet(userId: string, setId: string) {
     async (tx) => {
       await lockUser(tx, userId);
       await tx.enrollment.deleteMany({ where: { userId, setId } });
-      await tx.studySession.updateMany({ where: { userId, purpose: 'DAILY', status: 'ACTIVE' }, data: { status: 'ABANDONED' } });
+      await tx.studySession.updateMany({ where: { userId, purpose: { in: ['DAILY', 'ASSESSMENT'] }, status: 'ACTIVE' }, data: { status: 'ABANDONED' } });
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
   );
@@ -117,7 +139,7 @@ export async function setEnrollmentPaused(userId: string, setId: string, paused:
       await lockUser(tx, userId);
       const result = await tx.enrollment.updateMany({ where: { userId, setId }, data: { paused } });
       if (result.count === 0) throw new HttpError(404, '선택한 세트 등록을 찾을 수 없습니다.');
-      if (paused) await tx.studySession.updateMany({ where: { userId, purpose: 'DAILY', status: 'ACTIVE' }, data: { status: 'ABANDONED' } });
+      if (paused) await tx.studySession.updateMany({ where: { userId, purpose: { in: ['DAILY', 'ASSESSMENT'] }, status: 'ACTIVE' }, data: { status: 'ABANDONED' } });
       return { ok: true };
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
@@ -180,13 +202,15 @@ export async function getSession(userId: string, id: string, now = new Date()) {
     where: { id, userId },
     include: {
       set: true,
-      items: { orderBy: { position: 'asc' }, include: { reviewEvent: true } },
+      items: { orderBy: { position: 'asc' }, include: { reviewEvent: true, assessments: { select: { id: true } } } },
     },
   });
   if (!session) throw new HttpError(404, '학습 세션을 찾을 수 없습니다.');
   const usable = session.status !== 'ACTIVE' || await isDailySessionUsable(db, userId, session, session.items.filter((item) => !item.reviewEvent).map((item) => item.sentenceId), now);
   return {
     id: session.id,
+    userId: session.userId,
+    purpose: session.purpose,
     setTitle: session.set?.title ?? '오늘 복습',
     mode: session.mode,
     status: usable ? session.status : 'ABANDONED',
@@ -198,6 +222,8 @@ export async function getSession(userId: string, id: string, now = new Date()) {
       meaning: item.meaning,
       position: item.position,
       answered: Boolean(item.reviewEvent),
+      form: item.form,
+      assessmentLocked: session.purpose === 'ASSESSMENT' || item.assessments.length > 0,
     })),
     completedCount: session.items.filter((item) => item.reviewEvent).length,
   };
@@ -216,18 +242,19 @@ export async function revealSessionItem(
       const exposedAt = now ?? new Date();
       const item = await tx.sessionItem.findFirst({
         where: { id: input.itemId, sessionId },
-        include: { session: true, sentenceVersion: { include: { audioAsset: true } } },
+        include: { session: true, reviewEvent: true, assessments: true, applicationQuestion: true, sentenceVersion: { include: { audioAsset: true } } },
       });
       if (!item) throw new HttpError(404, '문항을 찾을 수 없습니다.');
       if (item.session.status === 'ABANDONED' || !await isDailySessionUsable(tx, userId, item.session, [item.sentenceId], exposedAt)) throw new HttpError(409, '만료된 학습 세션입니다. 오늘 화면에서 다시 시작해 주세요.');
+      if (!item.reviewEvent && (item.session.purpose === 'ASSESSMENT' || item.assessments.length > 0 || item.form === 'APPLICATION')) throw new HttpError(409, '평가 문항은 첫 답안을 제출한 뒤 정답을 확인할 수 있습니다.');
 
-      const text = input.kind === 'HINT' ? item.sentenceVersion.hint : item.sentenceVersion.target;
+      const text = item.applicationQuestion ? item.applicationQuestion.target : input.kind === 'HINT' ? item.sentenceVersion.hint : item.sentenceVersion.target;
       await tx.exposureEvent.create({ data: { userId, sessionItemId: item.id, kind: input.kind, text, createdAt: exposedAt } });
       await upsertLastExposureAt(tx, userId, item.sentenceId, exposedAt);
       return {
         text,
         audioPath:
-          input.kind === 'ANSWER' && item.sentenceVersion.audioAsset?.status === 'READY'
+          !item.applicationQuestion && input.kind === 'ANSWER' && item.sentenceVersion.audioAsset?.status === 'READY'
             ? item.sentenceVersion.audioAsset.path
             : undefined,
       };
@@ -271,11 +298,15 @@ export async function answerSessionItem(
           sentenceVersion: { include: { audioAsset: true } },
           exposures: true,
           reviewEvent: true,
+          applicationQuestion: true,
+          assessments: true,
         },
       });
       if (!item) throw new HttpError(404, '문항을 찾을 수 없습니다.');
       if (item.session.status === 'ABANDONED' || !await isDailySessionUsable(tx, userId, item.session, [item.sentenceId], performedAt)) throw new HttpError(409, '만료된 학습 세션입니다. 오늘 화면에서 다시 시작해 주세요.');
       if (item.reviewEvent) throw new HttpError(409, '이미 제출된 문항입니다.');
+      if (item.applicationQuestion && item.applicationQuestion.status !== 'PUBLISHED') throw new HttpError(409, '현재 사용할 수 없는 응용 문항입니다.');
+      if (item.assessments.some((assignment) => assignment.opensAt > performedAt)) throw new HttpError(409, '아직 평가 기간이 시작되지 않았습니다.');
 
       const previousState = await tx.userSentenceState.findUnique({
         where: { userId_sentenceId_mode: { userId, sentenceId: item.sentenceId, mode: item.session.mode } },
@@ -288,26 +319,29 @@ export async function answerSessionItem(
         throw new HttpError(400, '답을 열어 비교한 뒤 말하기 자기확인을 남겨 주세요.');
       }
       const assisted = item.exposures.some((event) => event.kind === 'HINT' || event.kind === 'ANSWER');
+      const practiceRecall = item.form === 'RECALL';
       const grading =
         item.session.mode === 'WRITTEN'
-          ? gradeWrittenInput(input.answer, item.sentenceVersion.acceptedAnswers, assisted)
+          ? gradeWrittenInput(input.answer, item.applicationQuestion?.acceptedAnswers ?? item.sentenceVersion.acceptedAnswers, assisted)
           : gradeSpokenInput(input.selfRating);
-      const review = computeReview({
-        now: performedAt,
-        mode: item.session.mode,
-        result: grading.result,
-        selfRating: input.selfRating,
-        hard: input.hard ?? false,
-        previous: previousState
-          ? {
-              reviewStep: previousState.reviewStep,
-              dueAt: previousState.dueAt,
-              qualifiedRecallCount: previousState.qualifiedRecallCount,
-              lastQualifiedAt: previousState.lastQualifiedAt,
-            }
-          : null,
-        lastExposureAt: preference?.lastExposedAt ?? null,
-      });
+      const review = practiceRecall
+        ? computeReview({
+            now: performedAt,
+            mode: item.session.mode,
+            result: grading.result,
+            selfRating: input.selfRating,
+            hard: input.hard ?? false,
+            previous: previousState
+              ? {
+                  reviewStep: previousState.reviewStep,
+                  dueAt: previousState.dueAt,
+                  qualifiedRecallCount: previousState.qualifiedRecallCount,
+                  lastQualifiedAt: previousState.lastQualifiedAt,
+                }
+              : null,
+            lastExposureAt: preference?.lastExposedAt ?? null,
+          })
+        : null;
       const timezone = await currentTimezone(tx, userId);
       const studyDate = localDate(performedAt, timezone);
 
@@ -322,24 +356,27 @@ export async function answerSessionItem(
           correct: grading.correct,
           assisted,
           hard: input.hard ?? false,
-          qualified: review.qualified,
-          policyVersion: REVIEW_POLICY_VERSION,
-          reviewStep: review.reviewStep,
-          reviewReason: review.reason,
+          qualified: review?.qualified ?? false,
+          form: item.form,
+          exposureGapHours: preference?.lastExposedAt ? Math.max(0, (performedAt.getTime() - preference.lastExposedAt.getTime()) / 3_600_000) : null,
+          policyVersion: practiceRecall ? REVIEW_POLICY_VERSION : null,
+          reviewStep: review?.reviewStep ?? null,
+          reviewReason: review?.reason ?? (item.form === 'APPLICATION' ? 'application-result' : 'assessment-result'),
           dueAt: item.dueAt ?? previousState?.dueAt ?? null,
           scheduledAt: item.scheduledAt,
-          nextDueAt: review.dueAt,
+          nextDueAt: review?.dueAt ?? null,
           performedAt,
           studyDate,
           timezone,
           createdAt: performedAt,
-          targetSnapshot: item.sentenceVersion.target,
-          acceptedAnswers: item.sentenceVersion.acceptedAnswers,
-          explanation: item.sentenceVersion.explanation,
+          targetSnapshot: item.applicationQuestion?.target ?? item.sentenceVersion.target,
+          acceptedAnswers: item.applicationQuestion?.acceptedAnswers ?? item.sentenceVersion.acceptedAnswers,
+          explanation: item.applicationQuestion?.explanation ?? item.sentenceVersion.explanation,
         },
       });
 
-      await updateSentenceState(tx, userId, item.sentenceId, item.session.mode, grading.result, review, performedAt, input.selfRating);
+      if (review) await updateSentenceState(tx, userId, item.sentenceId, item.session.mode, grading.result, review, performedAt, input.selfRating);
+      await recordAssessmentAnswer(tx, { userId, itemId: item.id, sentenceId: item.sentenceId, versionId: item.sentenceVersionId, eventId: event.id, result: grading.result, mode: item.session.mode, form: item.form === 'APPLICATION' ? 'APPLICATION' : 'RECALL', performedAt, previousExposureAt: preference?.lastExposedAt ?? null });
       await upsertLastExposureAt(tx, userId, item.sentenceId, performedAt);
 
       const remaining = await tx.sessionItem.count({ where: { sessionId, reviewEvent: null } });
@@ -476,6 +513,7 @@ function answerDto(
     reviewStep?: number | null;
     reviewReason?: string | null;
     nextDueAt?: Date | null;
+    form?: string;
   },
   version: { audioAsset?: { status: 'PENDING' | 'READY'; path: string } | null },
   completed: boolean,
@@ -490,7 +528,8 @@ function answerDto(
     qualified: event.qualified ?? false,
     reviewStep: event.reviewStep ?? 0,
     reviewReason: event.reviewReason ?? null,
-    audioPath: version.audioAsset?.status === 'READY' ? version.audioAsset.path : undefined,
+    form: event.form ?? 'RECALL',
+    audioPath: event.form !== 'APPLICATION' && version.audioAsset?.status === 'READY' ? version.audioAsset.path : undefined,
     completed,
   };
 }
@@ -541,4 +580,10 @@ function historyDto(session: {
 
 function sentenceStateKey(sentenceId: string, mode: StudyMode) {
   return `${sentenceId}:${mode}`;
+}
+
+function verifiedSentenceIds(events: { qualified: boolean; item: { sentenceId: string }; studyDate: string | null; performedAt: Date; exposureGapHours: number | null }[]) {
+  const grouped = new Map<string, typeof events>();
+  for (const event of events) grouped.set(event.item.sentenceId, [...(grouped.get(event.item.sentenceId) ?? []), event]);
+  return new Map([...grouped].map(([id, rows]) => [id, masteryEvidence(rows)]));
 }

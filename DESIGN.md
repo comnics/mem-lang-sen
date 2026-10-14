@@ -11,8 +11,8 @@
 - Avoid: fake progress, game currency, excessive gradients, implementation jargon in learner screens.
 
 ## Product goals
-- Recall essential sentences without answer cues. M0–M4: enroll, recall, compare, record, schedule and revisit.
-- Non-goals: push, AI speech scoring, retention assessment badges (M5+).
+- Recall essential sentences without answer cues. M0–M6: enroll, recall, compare, record, schedule, assess and revisit.
+- Non-goals: AI speech scoring, complete offline sentence packs, guaranteed memorization claims.
 - Success: clear first-session completion, accurate history, no answer leakage.
 
 ## Personas and jobs
@@ -20,8 +20,8 @@
 - Editor curating reusable, reviewed sentence sets.
 
 ## Information architecture
-- Learner: 오늘, 세트, 내 문장, 기록. Profile/settings ancillary.
-- Admin: overview, 세트 관리, 문장 관리, CSV 가져오기; separate sidebar/layout.
+- Learner: 오늘, 세트, 내 문장, 기록, 달력. Assessments reachable from today/history; installation and reminders in settings.
+- Admin: overview, sets, sentences, CSV import, application questions, reports and quality; separate sidebar/layout.
 - Primary screen hierarchy: purpose/next action, meaningful content, optional details.
 
 ## Design principles
@@ -52,7 +52,7 @@
 - Loading: button pending and skeleton/neutral text.
 - Empty: say what is missing with a useful action.
 - Error: preserve entered answer; show retry. Success: factual result.
-- Offline: M3 preserves current input while page is open; durable offline queue comes M6.
+- Offline: same-tab sessionStorage retains up to 20 immutable submissions for 24 hours; retry on reload/online/manual action. Server confirmation is required. Public offline shell only; no private page, API, RSC or audio cache.
 
 ## Content voice
 - Korean friendly respectful endings. ‘입력 회상’, ‘말하기 자기확인’, ‘오늘 학습’.

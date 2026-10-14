@@ -1,0 +1,9 @@
+# M5/M6 implementation contract
+Root owns Prisma schema/migration, learning/scheduling integration, finalverification/docs.
+M5 assessments: cohort everyinitialselectedsentence, first writtenattempt anchors fixed7±2/30±3windows regardlesssuccess; unstarted explicit. Weekly bounded cumulative sample + reviewedapplication variant(s), firstattemptonly beforefeedback; oneReviewEvent/state peranswer, link overlappingassessment(s). Application grading independent ordinaryrecall state, but shared exposure. Stored denominators/window/outside/missing meaningful, never30dayunexposedclaim.
+Records lane notes/selfclaim/hide/reports/calendar/adminquality+vettedApplicationQuestion. Usernotes private. Adminreportdisposition neverrewritesgrade. Verifiedbadge eventderived sharedlastgap, selfclaimindependent.
+M6 server: web-push3.6.7, currentenvdisableduntilkeysflags; SupabaseCron5minVaultSQL template, constanttimebearer, boundedcursor/lease DBoutbox unique dailydevicekey, providerallowlist, retry/410/429/5xx/expiry, externalIOnotx, genericpayload.
+M6 client: publicstatic-only SW cache, manifesticons/offline shell/install support. Userinitiatedpush consent, unsupported/deniedappfallback. sessionStorage owner+session+event frozenoutbox TTL24h<=20, reloadretry/online/manual sameevent, logoutclear, neverbackdate/serverconfirmationonly. Full offline packs/backgroundsync notincluded.
+App field additions see prisma/schema.prisma. New migration20261014020000_assessments_push appliedlocally. No externaldeploy or realpushsend. Existing app3100 muststopbeforefinalbuild/Playwright. 3000otherapp untouched.
+
+Completion 2026-10-14: full verify passed 48 unit +74 PostgreSQL integration +10 mobile E2E; fresh migration and rollback-only Cron SQL validation passed. VAPID/hosted Cron and real device push remain M7 staging validation.

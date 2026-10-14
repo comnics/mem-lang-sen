@@ -5,9 +5,11 @@ import { PrismaClient } from '../src/generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { createClient } from '@supabase/supabase-js';
 import { config } from 'dotenv';
+import { conversationCatalog, seedDigest } from './seed-data/catalog';
+import { remoteProjectArgument, validatePlatformEnvironment } from '../scripts/platform/environment';
 
-config({ quiet: true });
 config({ path: '.env.local', override: false, quiet: true });
+config({ quiet: true });
 
 const bucket = 'sentence-audio';
 const fixtureDir = join(process.cwd(), 'fixtures/audio');
@@ -77,8 +79,10 @@ const prisma = new PrismaClient({
 });
 
 async function main() {
-  for (const value of [connectionString!, process.env.NEXT_PUBLIC_SUPABASE_URL ?? '']) {
-    if (!['127.0.0.1', 'localhost'].includes(new URL(value).hostname)) throw new Error('Demo seed is restricted to local Supabase.');
+  validatePlatformEnvironment(process.env, remoteProjectArgument());
+  // Validate the whole catalog before mutating DB or Storage.
+  for (const topic of conversationCatalog) for (const sentence of topic.sentences) {
+    if (!existsSync(join(fixtureDir, sentence.audioFile))) throw new Error(`Missing audio fixture: ${sentence.audioFile}. Run pnpm seed:audio on macOS.`);
   }
   const fixtureAudio = await uploadFixtureAudioIfPresent();
   const sentenceVersionIds: string[] = [];
@@ -122,6 +126,53 @@ async function main() {
   const publishSamples = fixtureAudio.length === targets.length;
   await ensureSet('cmemseedset000000000000001', '여행 기본 표현', '길 찾기와 매장 이용에 바로 쓰는 짧은 표현입니다.', 'SITUATION', 'A1', sentenceVersionIds.slice(0, 3), publishSamples);
   await ensureSet('cmemseedset000000000000002', '서비스 요청 표현', '예약, 결제, 대기 상황에서 공손하게 요청하는 표현입니다.', 'FUNCTION', 'A2', sentenceVersionIds.slice(3, 6), publishSamples);
+  const applications = [
+    { id: 'cmemseedapp000000000000001', sentenceVersionId: sentenceVersionIds[1], prompt: '카페에서 커피 대신 차 한 잔을 정중히 주문해 보세요.', meaning: '주문 패턴에서 음료를 바꾸는 연습입니다.', target: 'I would like a cup of tea.', acceptedAnswers: ['I would like a cup of tea.', "I'd like a cup of tea."], explanation: 'I would like 뒤에 원하는 음료를 넣습니다.' },
+    { id: 'cmemseedapp000000000000002', sentenceVersionId: sentenceVersionIds[3], prompt: '이번에는 Kim이라는 이름으로 예약했다고 말해 보세요.', meaning: '예약자 이름을 바꾸어 말합니다.', target: 'I have a reservation under Kim.', acceptedAnswers: ['I have a reservation under Kim.', 'I have a booking under Kim.'], explanation: 'under 뒤에 예약자 이름을 넣습니다.' },
+  ];
+  for (const application of applications) await prisma.applicationQuestion.upsert({ where: { id: application.id }, update: {}, create: { ...application, status: 'PUBLISHED' } });
+  await seedConversationCatalog();
+  console.log(`Seed complete: ${targets.length + conversationCatalog.reduce((n, topic) => n + topic.sentences.length, 0)} sentences, ${2 + conversationCatalog.length} sets. Existing study records preserved.`);
+}
+
+async function seedConversationCatalog() {
+  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SECRET_KEY!, { auth: { persistSession: false, autoRefreshToken: false } });
+  for (const topic of conversationCatalog) {
+    const audioAssets: { id: string }[] = [];
+    for (const sentence of topic.sentences) {
+      const path = `seed/${sentence.audioFile}`;
+      const file = await readFile(join(fixtureDir, sentence.audioFile));
+      const { error } = await supabase.storage.from(bucket).upload(path, file, { upsert: true, contentType: 'audio/wav' });
+      if (error) throw new Error(`Failed to upload ${path}: ${error.message}`);
+      audioAssets.push(await prisma.audioAsset.upsert({
+        where: { path }, update: {},
+        create: { path, contentType: 'audio/wav', size: file.length, status: 'READY', completedAt: new Date() },
+      }));
+    }
+    await prisma.$transaction(async (tx) => {
+      // Serialize catalog writers so reruns cannot race version numbering.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(73144)`;
+      const versionIds: string[] = [];
+      for (const [index, sentence] of topic.sentences.entries()) {
+        const data = { ...sentence.data, audioAssetId: audioAssets[index].id };
+        const id = `ctopicversion${seedDigest(JSON.stringify([sentence.id, sentence.data, sentence.audioFile]))}`;
+        const existing = await tx.sentenceVersion.findUnique({ where: { id } });
+        if (existing) { versionIds.push(existing.id); continue; }
+        await tx.sentence.upsert({ where: { id: sentence.id }, update: {}, create: { id: sentence.id } });
+        const latest = await tx.sentenceVersion.findFirst({ where: { sentenceId: sentence.id }, orderBy: { versionNumber: 'desc' } });
+        const version = await tx.sentenceVersion.create({ data: { id, sentenceId: sentence.id, versionNumber: (latest?.versionNumber ?? 0) + 1, ...data, status: 'PUBLISHED' } });
+        versionIds.push(version.id);
+      }
+      // Published memberships are immutable: a changed catalog creates a revised set.
+      // Previously enrolled sets and baseline assessment versions remain available.
+      const id = `ctopicset${seedDigest(JSON.stringify([topic.key, topic.title, topic.description, versionIds]))}`;
+      await tx.studySet.upsert({ where: { id }, update: {}, create: {
+        id, title: topic.title, description: topic.description, category: 'SITUATION', level: topic.level,
+        status: 'PUBLISHED', publishedAt: new Date(),
+        sentences: { create: versionIds.map((sentenceVersionId, index) => ({ sentenceVersionId, order: index + 1 })) },
+      } });
+    }, { timeout: 20_000 });
+  }
 }
 
 async function uploadFixtureAudioIfPresent() {

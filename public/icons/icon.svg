@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="문장정원">
+  <rect width="512" height="512" rx="96" fill="#fffefa"/>
+  <path d="M128 142c0-23 19-42 42-42h172c23 0 42 19 42 42v228c0 23-19 42-42 42H170c-23 0-42-19-42-42V142Z" fill="#1f5f57"/>
+  <path d="M174 156h164v44H174v-44Zm0 78h164v30H174v-30Zm0 58h122v30H174v-30Z" fill="#fffefa"/>
+  <path d="M178 392c31-52 65-78 102-78 31 0 54 18 70 54-32-9-60-6-83 10-25 18-55 22-89 14Z" fill="#f6b84b"/>
+  <circle cx="336" cy="348" r="14" fill="#fffefa"/>
+</svg>
