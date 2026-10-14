@@ -1,0 +1,376 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["app"]
+}
+
+enum UserRole {
+  USER
+  ADMIN
+
+  @@schema("app")
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+
+  @@schema("app")
+}
+
+enum ContentLevel {
+  A1
+  A2
+  B1
+
+  @@schema("app")
+}
+
+enum SetCategory {
+  SITUATION
+  PATTERN
+  FUNCTION
+
+  @@schema("app")
+}
+
+enum ContentStatus {
+  DRAFT
+  REVIEW
+  PUBLISHED
+  ARCHIVED
+
+  @@schema("app")
+}
+
+enum StudyMode {
+  WRITTEN
+  SPOKEN
+
+  @@schema("app")
+}
+
+enum SessionStatus {
+  ACTIVE
+  COMPLETED
+  ABANDONED
+
+  @@schema("app")
+}
+
+enum ExposureKind {
+  HINT
+  ANSWER
+
+  @@schema("app")
+}
+
+enum ReviewResult {
+  CORRECT
+  INCORRECT
+  ASSISTED
+  SELF_REPORTED
+
+  @@schema("app")
+}
+
+enum SelfRating {
+  AGAIN
+  GOOD
+
+  @@schema("app")
+}
+
+enum AudioStatus {
+  PENDING
+  READY
+
+  @@schema("app")
+}
+
+model AppUser {
+  id          String     @id @db.Uuid
+  email       String     @unique
+  displayName String?
+  role        UserRole   @default(USER)
+  status      UserStatus @default(ACTIVE)
+  onboarded   Boolean    @default(false)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  enrollments        Enrollment[]
+  studyPlan          StudyPlan?
+  sessions           StudySession[]
+  reviewEvents       ReviewEvent[]
+  exposureEvents     ExposureEvent[]
+  sentenceStates     UserSentenceState[]
+  sentencePreference UserSentencePreference[]
+
+  @@schema("app")
+}
+
+model StudyPlan {
+  userId       String   @id @db.Uuid
+  displayName  String
+  dailyMinutes Int
+  timezone     String
+  weekdays     Int[]
+  ruleType     String   @default("WEEKDAYS")
+  intervalDays Int      @default(2)
+  anchorDate   String
+  startDate    String
+  targetDate   String?
+  localTime    String   @default("09:00")
+  paused       Boolean  @default(false)
+  recoveryDate String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user AppUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exceptions ScheduleException[]
+
+  @@schema("app")
+}
+
+model ScheduleException {
+  userId String @db.Uuid
+  date String
+  kind String
+  plan StudyPlan @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  @@id([userId, date])
+  @@schema("app")
+}
+
+model AudioAsset {
+  id          String      @id @default(cuid())
+  path        String      @unique
+  contentType String
+  size        Int
+  status      AudioStatus @default(PENDING)
+  createdAt   DateTime    @default(now())
+  completedAt DateTime?
+
+  versions SentenceVersion[]
+
+  @@schema("app")
+}
+
+model Sentence {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  versions        SentenceVersion[]
+  states          UserSentenceState[]
+  userPreferences UserSentencePreference[]
+
+  @@schema("app")
+}
+
+model SentenceVersion {
+  id              String       @id @default(cuid())
+  sentenceId      String
+  versionNumber   Int
+  prompt          String
+  meaning         String
+  target          String
+  acceptedAnswers String[]
+  hint            String
+  explanation     String
+  language        String       @default("en")
+  level           ContentLevel
+  status          ContentStatus @default(DRAFT)
+  audioAssetId    String?
+  createdAt       DateTime      @default(now())
+
+  sentence     Sentence      @relation(fields: [sentenceId], references: [id], onDelete: Restrict)
+  audioAsset   AudioAsset?   @relation(fields: [audioAssetId], references: [id], onDelete: SetNull)
+  setSentences SetSentence[]
+  sessionItems SessionItem[]
+
+  @@unique([sentenceId, versionNumber])
+  @@index([status, level])
+  @@schema("app")
+}
+
+model StudySet {
+  id          String        @id @default(cuid())
+  title       String
+  description String
+  category    SetCategory
+  level       ContentLevel
+  status      ContentStatus @default(DRAFT)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  publishedAt DateTime?
+
+  sentences   SetSentence[]
+  enrollments Enrollment[]
+  sessions    StudySession[]
+
+  @@index([status, category, level])
+  @@schema("app")
+}
+
+model SetSentence {
+  setId             String
+  sentenceVersionId String
+  order             Int
+
+  set             StudySet        @relation(fields: [setId], references: [id], onDelete: Cascade)
+  sentenceVersion SentenceVersion @relation(fields: [sentenceVersionId], references: [id], onDelete: Restrict)
+
+  @@id([setId, sentenceVersionId])
+  @@unique([setId, order])
+  @@schema("app")
+}
+
+model Enrollment {
+  userId    String   @db.Uuid
+  setId     String
+  createdAt DateTime @default(now())
+  paused    Boolean  @default(false)
+
+  user AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  set  StudySet @relation(fields: [setId], references: [id], onDelete: Cascade)
+
+  @@id([userId, setId])
+  @@schema("app")
+}
+
+model StudySession {
+  id        String        @id @default(cuid())
+  userId    String        @db.Uuid
+  setId     String?
+  purpose   String        @default("PRACTICE")
+  studyDate String?
+  timezone  String        @default("Asia/Seoul")
+  mode      StudyMode
+  status    SessionStatus @default(ACTIVE)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  user  AppUser       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  set   StudySet?     @relation(fields: [setId], references: [id], onDelete: Restrict)
+  items SessionItem[]
+
+  @@index([userId, createdAt])
+  @@index([userId, purpose, studyDate, status])
+  @@schema("app")
+}
+
+model SessionItem {
+  id                String   @id @default(cuid())
+  sessionId         String
+  sentenceVersionId String
+  sentenceId        String
+  prompt            String
+  meaning           String
+  position          Int
+  createdAt         DateTime @default(now())
+  dueAt             DateTime?
+  scheduledAt       DateTime?
+  estimatedSeconds  Int      @default(30)
+
+  session         StudySession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sentenceVersion SentenceVersion @relation(fields: [sentenceVersionId], references: [id], onDelete: Restrict)
+  reviewEvent     ReviewEvent?
+  exposures       ExposureEvent[]
+
+  @@unique([sessionId, position])
+  @@index([sessionId])
+  @@schema("app")
+}
+
+model ReviewEvent {
+  id              String       @id @default(cuid())
+  userId          String       @db.Uuid
+  sessionItemId   String       @unique
+  eventId         String       @db.Uuid
+  answer          String?
+  selfRating      SelfRating?
+  result          ReviewResult
+  correct         Boolean?
+  targetSnapshot  String
+  acceptedAnswers String[]
+  explanation     String
+  assisted        Boolean      @default(false)
+  hard            Boolean      @default(false)
+  qualified       Boolean      @default(false)
+  policyVersion   String?
+  reviewStep      Int?
+  reviewReason    String?
+  dueAt           DateTime?
+  scheduledAt     DateTime?
+  nextDueAt       DateTime?
+  performedAt     DateTime     @default(now())
+  studyDate       String?
+  timezone        String?
+  createdAt       DateTime     @default(now())
+
+  user AppUser     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  item SessionItem @relation(fields: [sessionItemId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, eventId])
+  @@index([userId, createdAt])
+  @@schema("app")
+}
+
+model ExposureEvent {
+  id            String       @id @default(cuid())
+  userId        String       @db.Uuid
+  sessionItemId String
+  kind          ExposureKind
+  text          String
+  createdAt     DateTime     @default(now())
+
+  user AppUser     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  item SessionItem @relation(fields: [sessionItemId], references: [id], onDelete: Cascade)
+
+  @@index([userId, sessionItemId, kind])
+  @@schema("app")
+}
+
+model UserSentenceState {
+  userId           String       @db.Uuid
+  sentenceId       String
+  mode             StudyMode
+  lastResult       ReviewResult
+  lastPracticedAt  DateTime
+  correctCount     Int          @default(0)
+  incorrectCount   Int          @default(0)
+  assistedCount    Int          @default(0)
+  selfReportedGood Int          @default(0)
+  version          Int          @default(1)
+  policyVersion    String       @default("relative-v1")
+  reviewStep       Int          @default(0)
+  dueAt            DateTime?
+  qualifiedRecallCount Int      @default(0)
+  lastQualifiedAt  DateTime?
+
+  user     AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sentence Sentence @relation(fields: [sentenceId], references: [id], onDelete: Restrict)
+
+  @@id([userId, sentenceId, mode])
+  @@index([userId, mode, dueAt])
+  @@schema("app")
+}
+
+model UserSentencePreference {
+  userId     String   @db.Uuid
+  sentenceId String
+  hidden     Boolean  @default(false)
+  lastExposedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user     AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sentence Sentence @relation(fields: [sentenceId], references: [id], onDelete: Restrict)
+
+  @@id([userId, sentenceId])
+  @@schema("app")
+}

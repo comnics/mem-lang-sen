@@ -1,0 +1,73 @@
+{
+  "name": "mem-lang-sen",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.3.0",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "prisma generate && next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "prisma generate && next typegen && tsc --noEmit",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:e2e": "playwright test",
+    "verify:full": "pnpm lint && pnpm typecheck && pnpm test:unit && pnpm test:integration && pnpm build && pnpm test:e2e",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate deploy",
+    "db:seed": "tsx prisma/seed.ts",
+    "local:start": "supabase start",
+    "local:stop": "supabase stop",
+    "local:setup": "tsx scripts/local-setup.ts",
+    "admin:grant": "tsx scripts/grant-admin.ts",
+    "platform:setup": "tsx scripts/platform-setup.ts"
+  },
+  "dependencies": {
+    "next": "16.4.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "@prisma/client": "7.10.0",
+    "@prisma/adapter-pg": "7.10.0",
+    "pg": "^8.16.3",
+    "@supabase/ssr": "0.12.7",
+    "@supabase/supabase-js": "2.117.3",
+    "zod": "^4.0.0",
+    "server-only": "^0.0.1",
+    "lucide-react": "^0.577.0",
+    "csv-parse": "7.0.2"
+  },
+  "devDependencies": {
+    "prisma": "7.10.0",
+    "typescript": "^5.9.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/pg": "^8.15.0",
+    "tailwindcss": "^4.1.0",
+    "@tailwindcss/postcss": "^4.1.0",
+    "eslint": "^9.0.0",
+    "eslint-config-next": "16.4.0",
+    "vitest": "^4.0.0",
+    "@playwright/test": "^1.58.0",
+    "tsx": "^4.20.0",
+    "dotenv": "^17.0.0",
+    "supabase": "2.120.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "prisma@7.10.0>mysql2": "3.23.1",
+      "@prisma/config@7.10.0>deepmerge-ts": "8.0.0"
+    },
+    "onlyBuiltDependencies": [
+      "@prisma/engines",
+      "prisma",
+      "esbuild",
+      "sharp",
+      "supabase"
+    ]
+  }
+}
