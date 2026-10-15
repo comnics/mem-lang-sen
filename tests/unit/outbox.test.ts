@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearOwnerOutbox, countOwnerOutbox, loadOutbox, outboxKey, pruneOutbox, removeOutboxItem, saveOutboxItem, type OutboxItem } from '@/lib/outbox';
 
 class MemoryStorage implements Storage {
@@ -32,6 +32,8 @@ class MemoryStorage implements Storage {
 const now = new Date('2026-10-14T00:00:00.000Z').getTime();
 
 describe('session outbox', () => {
+  beforeEach(() => { vi.spyOn(Date, 'now').mockReturnValue(now); });
+  afterEach(() => vi.restoreAllMocks());
   it('stores frozen payloads by owner and session and preserves event ids', () => {
     const storage = new MemoryStorage();
     const item = outboxItem('user-a', 'session-a', 'item-a', 'event-a');

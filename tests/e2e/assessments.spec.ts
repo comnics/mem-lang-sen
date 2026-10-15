@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const password = 'LocalStudy!2026';
 const email = `m5-${randomUUID()}@example.test`;
-const origin = process.env.APP_ORIGIN!;
+const origin = process.env.APP_ORIGIN ?? 'http://127.0.0.1:3100';
 let userId: string | undefined;
 let db: Client;
 const auth = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SECRET_KEY!, { auth: { persistSession: false } });

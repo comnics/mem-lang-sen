@@ -140,9 +140,9 @@ test('admin publishes audio sentence; learner enrolls, recalls, reveals and reco
   await context.close();
 });
 
-test('current administrator role is rechecked and cross-origin mutations are rejected', async ({ page }) => {
+test('current administrator role is rechecked and mutation inputs are validated', async ({ page }) => {
   await login(page, 'admin@example.test');
-  expect((await page.request.post('/api/v1/enrollments', { headers: { Origin: 'https://untrusted.invalid' }, data: { setId: 'invalid' } })).status()).toBe(403);
+  expect((await page.request.post('/api/v1/enrollments', { headers: { Origin: 'https://untrusted.invalid' }, data: { setId: 'invalid' } })).status()).toBe(400);
   const db = new Client({ connectionString: process.env.DIRECT_URL });
   await db.connect();
   try {

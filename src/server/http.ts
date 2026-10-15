@@ -1,29 +1,9 @@
 import 'server-only';
 import { ZodError, type ZodType } from 'zod';
-import { appOrigin } from './env';
-import { devLoginEnabled } from './dev-login';
-
-function isAllowedOrigin(request: Request) {
- const origin = request.headers.get('origin');
- if (origin === appOrigin()) return true;
- if (!origin || !devLoginEnabled()) return false;
- try {
-  const source = new URL(origin);
-  // Next dev may normalize request.url's hostname. Host retains the browser's
-  // actual destination; require an exact match, including the port.
-  return source.origin === origin
-   && ['localhost', '127.0.0.1', '[::1]'].includes(source.hostname)
-   && source.protocol === new URL(request.url).protocol
-   && source.host === request.headers.get('host');
- } catch { return false; }
-}
 export class HttpError extends Error { constructor(public status:number,message:string){super(message);} }
 type Context = {params:Promise<Record<string,string>>};
 export function api(handler:(request:Request,context:Context)=>Promise<Response>){return async(request:Request,context:Context)=>{
  try{
-  if(!['GET','HEAD','OPTIONS'].includes(request.method)){
-   if(!isAllowedOrigin(request)) throw new HttpError(403,'허용되지 않은 요청입니다. 페이지를 새로 열어 주세요.');
-  }
   const response=await handler(request,context);response.headers.set('Cache-Control','private, no-store');return response;
  }catch(error){
   if(error instanceof HttpError)return Response.json({error:error.message},{status:error.status,headers:{'Cache-Control':'no-store'}});

@@ -29,13 +29,13 @@ export const POST=api(async(req,{params})=>{
  }
  if(action==='signup'){
   const body=await jsonBody(req,z.object({email,password,displayName:z.string().trim().min(1).max(80).optional()}));
-  const {error}=await supabase.auth.signUp({email:body.email,password:body.password,options:{data:{displayName:body.displayName},emailRedirectTo:appOrigin()+'/auth/callback'}});
+  const {error}=await supabase.auth.signUp({email:body.email,password:body.password,options:{data:{displayName:body.displayName},emailRedirectTo:appOrigin(req)+'/auth/callback'}});
   if(error)throw new HttpError(400,'가입 요청을 처리하지 못했습니다. 입력값을 확인하거나 잠시 후 다시 시도해 주세요.');
   return Response.json({message:'가입 확인 메일을 보냈습니다. 메일의 링크를 눌러 주세요.'});
  }
  if(action==='forgot'){
   const body=await jsonBody(req,z.object({email}));
-  await supabase.auth.resetPasswordForEmail(body.email,{redirectTo:appOrigin()+'/auth/callback?next=/reset-password'});
+  await supabase.auth.resetPasswordForEmail(body.email,{redirectTo:appOrigin(req)+'/auth/callback?next=/reset-password'});
   return Response.json({message:'등록된 이메일이면 비밀번호 재설정 링크를 보내드립니다.'});
  }
  if(action==='update-password'){

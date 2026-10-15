@@ -9,7 +9,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   vi.stubEnv('NODE_ENV', 'development');
   vi.stubEnv('VERCEL', '');
-  vi.stubEnv('APP_ORIGIN', 'http://127.0.0.1:3100');
+  vi.stubEnv('APP_ORIGIN', '');
   vi.stubEnv('DATABASE_URL', 'configured');
   vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://example.supabase.co');
   vi.stubEnv('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY', 'configured');
@@ -27,13 +27,9 @@ describe('development login boundary', () => {
     expect((await request()).status).toBe(404);
     expect(mocks.signIn).not.toHaveBeenCalled();
   });
-  it('blocks hosted development and cross-origin requests', async () => {
+  it('blocks hosted development', async () => {
     vi.stubEnv('VERCEL', '1');
     expect((await request()).status).toBe(404);
-    vi.stubEnv('VERCEL', '');
-    expect((await request('ADMIN', 'https://other.example')).status).toBe(403);
-    vi.stubEnv('APP_ORIGIN', 'https://example.com');
-    expect(devLoginEnabled()).toBe(false);
     expect(mocks.signIn).not.toHaveBeenCalled();
   });
   it('uses server credentials and checks the current role', async () => {

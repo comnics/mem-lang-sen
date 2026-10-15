@@ -14,7 +14,6 @@ Supabase 프로젝트의 PostgreSQL 버전을 로컬 `supabase/config.toml`과 �
 
 | 변수 | 용도 |
 |---|---|
-| `APP_ORIGIN` | HTTPS 서비스 origin, 끝 슬래시 없는 값 |
 | `NEXT_PUBLIC_SUPABASE_URL` | 해당 환경 Supabase API 주소 |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | 브라우저용 publishable key |
 | `SUPABASE_SECRET_KEY` | 서버 전용 Auth/Storage 관리 키 |
@@ -36,7 +35,7 @@ pnpm platform:setup
 
 ## 3. Auth
 
-Supabase Auth에서 이메일/비밀번호 로그인·이메일 확인을 켜고 최소 비밀번호 길이를 10으로 설정합니다. Site URL은 APP_ORIGIN, redirect allowlist는 `/auth/callback` 및 `/auth/callback?next=/reset-password`의 정확한 서비스 URL을 등록합니다. 운영 allowlist에 광범위한 wildcard를 사용하지 않습니다.
+Supabase Auth에서 이메일/비밀번호 로그인·이메일 확인을 켜고 최소 비밀번호 길이를 10으로 설정합니다. Site URL은 대표 서비스 주소로 설정하고, redirect allowlist는 `/auth/callback` 및 `/auth/callback?next=/reset-password`의 정확한 서비스 URL을 등록합니다. 운영 allowlist에 광범위한 wildcard를 사용하지 않습니다.
 
 이메일 템플릿은 `supabase/templates/confirmation.html`과 `recovery.html`을 적용합니다. 토큰 해시를 `/auth/confirm`에서 검증하고 세션 쿠키를 설정합니다. 실제 SMTP 발송자·도메인을 설정한 뒤 회원가입/재설정/만료 링크를 스테이징에서 확인합니다. 로컬 메일함은 실제 SMTP 검증을 대신하지 않습니다.
 
@@ -80,8 +79,13 @@ pnpm db:seed --remote-project=PROJECT_REF
 
 ## 개발용 빠른 로그인
 
-`pnpm dev --hostname 127.0.0.1 --port 3100` 실행 시 로그인 화면 하단에 사용자/관리자 버튼이 표시된다. 로컬 개발에서는 실제 접속한 `localhost`/`127.0.0.1` 주소와 포트가 요청 대상과 일치하면 허용하므로, 기본 `pnpm dev`의 3000 포트에서도 빠른 로그인이 동작한다. 가입·복구 메일 링크의 기준 주소인 `.env.local`의 `APP_ORIGIN`은 사용할 대표 주소로 설정한다. 운영 모드에서는 `APP_ORIGIN`과 정확히 일치하는 출처만 허용한다.
+`pnpm dev --hostname 127.0.0.1 --port 3100` 실행 시 로그인 화면 하단에 사용자/관리자 버튼이 표시된다. `APP_ORIGIN` 설정은 필요하지 않다. 가입·복구 링크와 인증 후 이동 주소는 요청 대상 주소를 사용한다.
 
 서버 전용 `DEV_LOGIN_USER_EMAIL`, `DEV_LOGIN_USER_PASSWORD`, `DEV_LOGIN_ADMIN_EMAIL`, `DEV_LOGIN_ADMIN_PASSWORD`에 각 테스트 계정 정보를 설정한다. 계정은 Supabase Auth에 존재해야 하며 `app.AppUser`의 실제 역할이 각각 `USER`, `ADMIN`이고 활성 상태여야 한다. 버튼은 계정 생성이나 권한 변경을 하지 않는다. 비밀번호를 클라이언트로 전달하지 않으며 일반 비밀번호 로그인으로 세션을 발급한다.
 
-`NODE_ENV=development`, 로컬 `APP_ORIGIN`, Vercel 외부 실행 조건에서만 활성화된다. 프로덕션 빌드에서는 버튼을 숨기고 API도 차단한다. 개발 서버는 루프백 주소에 바인딩해 사용한다. 현재 연결된 Supabase에 개발 전용 사용자/관리자 계정 2개를 준비했으며, 해당 계정의 학습·관리 작업은 그 프로젝트에 실제 저장된다.
+`NODE_ENV=development`, Vercel 외부 실행 조건에서만 활성화된다. 프로덕션 빌드에서는 버튼을 숨기고 API도 차단한다. 개발 서버는 루프백 주소에 바인딩해 사용한다. 현재 연결된 Supabase에 개발 전용 사용자/관리자 계정 2개를 준비했으며, 해당 계정의 학습·관리 작업은 그 프로젝트에 실제 저장된다.
+
+
+## 접속 주소 자동 처리
+
+Vercel에 `APP_ORIGIN`을 등록하지 않는다. API는 Origin 헤더의 유무나 값으로 요청을 차단하지 않으며, 기존 Origin 기반 CSRF 검사는 제거했다. 인증·역할·소유권·JSON 입력 검사는 유지한다. 이는 브라우저의 CORS 정책을 모든 외부 사이트에 개방하는 설정은 아니다. 인증 링크는 요청 대상 Host와 프로토콜을 사용하고, Vercel에서는 HTTPS를 사용한다. Supabase의 Site URL과 Redirect URLs는 별도 설정이며 사용하는 배포 주소를 등록해야 한다.
