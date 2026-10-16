@@ -64,7 +64,7 @@ export function SentenceRecordsClient({ sentence }: { sentence: SentenceRecord }
       </div>
       <label className="field">
         문장 신고
-        <input className="input" value={reportDetail} onChange={(event) => setReportDetail(event.target.value)} placeholder="오탈자, 정답, 음원 문제를 적어 주세요." />
+        <input className="input" disabled={pending === 'report'} value={reportDetail} onChange={(event) => setReportDetail(event.target.value)} placeholder="오탈자, 정답, 음원 문제를 적어 주세요." />
       </label>
       <button className="button-ghost" type="button" onClick={() => perform('report')} disabled={Boolean(pending) || !sentence.sentenceVersionId || !reportDetail.trim()}><Flag size={18} aria-hidden="true" />{pending === 'report' ? '신고 중' : '신고'}</button>
       {message ? <p className={failed ? 'notice notice-error' : 'notice notice-success'} role={failed ? 'alert' : 'status'}>{message}</p> : null}

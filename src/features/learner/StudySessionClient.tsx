@@ -418,14 +418,14 @@ export function StudySessionClient({ session }: { session: Session }) {
       {currentReveal?.ANSWER ? (
         <div className="notice">
           <strong>답</strong>
-          <p lang="en">{currentReveal.ANSWER.text}</p>
+          <p className="english-phrase" lang="en">{currentReveal.ANSWER.text}</p>
           {currentReveal.ANSWER.audioUrl ? <audio controls src={currentReveal.ANSWER.audioUrl}>오디오를 재생할 수 없습니다.</audio> : null}
         </div>
       ) : null}
       {currentResult ? (
         <div className={currentResult.correct === false ? 'notice notice-error' : 'notice notice-success'}>
           <h2 ref={resultRef} tabIndex={-1}>{resultCopy(currentResult.result)}</h2>
-          <p lang="en">{currentResult.target}</p>
+          <p className="english-phrase" lang="en">{currentResult.target}</p>
           <p>{currentResult.explanation}</p>
           <p className="muted">
             {currentResult.form === 'APPLICATION' || currentResult.reviewReason === 'assessment-result'

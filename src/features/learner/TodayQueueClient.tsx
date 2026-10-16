@@ -99,7 +99,7 @@ export function TodayQueueClient({ initialQueue }: { initialQueue: TodayQueueDTO
       </div>
 
       {queue.activeSessionId ? (
-        <Link className="button" href={`/study/${queue.activeSessionId}`}>
+        <Link className="button" aria-disabled={Boolean(pending)} onClick={(event) => { if (pending) event.preventDefault(); }} href={`/study/${queue.activeSessionId}`}>
           진행 중인 오늘 학습 이어가기 <ArrowRight size={18} aria-hidden="true" />
         </Link>
       ) : (
