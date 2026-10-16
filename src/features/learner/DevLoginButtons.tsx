@@ -38,6 +38,9 @@ export function DevLoginButtons() {
       <button className="button-secondary button-full" type="button" disabled={pending !== null} onClick={() => login('ADMIN')}>
         {pending === 'ADMIN' ? '로그인 중…' : '관리자로 로그인'}
       </button>
+      <button className="button-secondary button-full" type="button" disabled={pending !== null} onClick={() => login('USER')}>
+        {pending === 'USER' ? '로그인 중…' : '사용자로 로그인 (추가)'}
+      </button>
       {error ? <p className="notice notice-error" role="alert">{error}</p> : null}
     </section>
   );
