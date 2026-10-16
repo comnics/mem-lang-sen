@@ -674,7 +674,8 @@ audio { width: 100%; max-width: 100%; }
 @media (max-width: 719px) {
   /* Text editing releases overlays, without affecting checkbox/select navigation. */
   body:has(:is(textarea, input:not([type]), input[type='text'], input[type='email'], input[type='password'], input[type='number'], [contenteditable='true']):focus) .topbar { position: static; }
-  body:has(:is(textarea, input:not([type]), input[type='text'], input[type='email'], input[type='password'], input[type='number'], [contenteditable='true']):focus) .bottom-nav { position: static; margin-top: 16px; }
+  /* Keep document height stable when blur occurs between pointer down and up. */
+  body:has(:is(textarea, input:not([type]), input[type='text'], input[type='email'], input[type='password'], input[type='number'], [contenteditable='true']):focus) .bottom-nav { visibility: hidden; }
 }
 @media (max-width: 359px) {
   .app-shell, .public-shell { padding-inline: 12px; }

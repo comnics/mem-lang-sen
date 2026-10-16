@@ -69,13 +69,31 @@ test('visible keyboard focus follows native checkbox and radio selection', async
 test('text editing releases overlays and preserves entered text on blur', async ({ page }) => {
   await page.locator('textarea').fill('키보드 편집 테스트');
   await expect(page.locator('.topbar')).toHaveCSS('position', 'static');
-  await expect(page.locator('.bottom-nav')).toHaveCSS('position', 'static');
+  await expect(page.locator('.bottom-nav')).toBeHidden();
   await page.locator('textarea').blur();
   await expect(page.locator('.bottom-nav')).toHaveCSS('position', 'fixed');
+  await expect(page.locator('.bottom-nav')).toBeVisible();
   await expect(page.locator('textarea')).toHaveValue('키보드 편집 테스트');
 });
 
 test('200% text enlargement keeps long content within the viewport', async ({ page }) => {
   await page.addStyleTag({ content: '.app-shell :is(p,h1,strong,span,a,button) { font-size: 200%; }' });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(321);
+});
+
+test('first submit click survives leaving the answer field at the bottom of a short page', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.setContent(`<div class="app-shell"><header class="topbar">문장정원</header>
+    <main class="app-main"><section class="card stack-lg"><h1>입력 회상</h1>
+    <p style="height:300px">회상 질문</p><label class="field">답안<textarea class="textarea"></textarea></label>
+    <button class="button" type="button">제출</button></section></main>
+    <nav class="bottom-nav">${'<a class="nav-item" href="#">메뉴</a>'.repeat(5)}</nav></div>`);
+  await page.addStyleTag({ content: css });
+  await page.getByRole('button', { name: '제출' }).evaluate(button => {
+    button.addEventListener('click', () => { button.textContent = '제출 완료'; });
+  });
+  await page.getByRole('textbox').fill('My answer');
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await page.getByRole('button', { name: '제출', exact: true }).click();
+  await expect(page.getByRole('button', { name: '제출 완료' })).toBeVisible();
 });
