@@ -65,6 +65,15 @@ export function StudySessionClient({ session }: { session: Session }) {
   const pendingRef = useRef<string | null>(null);
   const retryingRef = useRef(false);
   const item = session.items[index];
+  const promptRef = useRef<HTMLParagraphElement>(null);
+  const resultRef = useRef<HTMLHeadingElement>(null);
+  const previousIndex = useRef(index);
+  const resultForFocus = item ? results[item.id] : undefined;
+  useEffect(() => {
+    if (resultForFocus) resultRef.current?.focus();
+    else if (previousIndex.current !== index) promptRef.current?.focus();
+    previousIndex.current = index;
+  }, [index, resultForFocus]);
   const progress = useMemo(
     () => new Set([...Object.keys(results), ...session.items.filter((entry) => entry.answered).map((entry) => entry.id)]).size,
     [results, session.items],
@@ -308,7 +317,8 @@ export function StudySessionClient({ session }: { session: Session }) {
   const isApplication = item.form === 'APPLICATION';
 
   return (
-    <section className="card stack-lg" aria-live="polite">
+    <section className="card stack-lg study-card">
+      <p className="sr-only" role="status">{pending ? '요청 처리 중' : currentReveal ? '도움 내용을 표시했습니다.' : ''}</p>
       <div className="split-row">
         <span className="badge">{isApplication ? '응용 평가' : session.purpose === 'ASSESSMENT' ? '회상 평가' : session.mode === 'WRITTEN' ? '입력 회상' : '말하기 자기확인'}</span>
         <span className="muted">{Math.min(progress, session.items.length)} / {session.items.length}</span>
@@ -316,7 +326,7 @@ export function StudySessionClient({ session }: { session: Session }) {
 
       <article className="card-quiet stack">
         <span className="badge badge-accent">{item.position}번째 문장</span>
-        <p className="recall-prompt" lang="ko">{item.prompt}</p>
+        <p ref={promptRef} tabIndex={-1} className="recall-prompt" lang="ko">{item.prompt}</p>
         <p className="muted">{item.meaning}</p>
       </article>
 
@@ -326,6 +336,7 @@ export function StudySessionClient({ session }: { session: Session }) {
             내가 떠올린 영어 문장
             <textarea
               className="textarea"
+              aria-describedby="answer-guidance"
               autoComplete="off"
               autoCapitalize="none"
               autoCorrect="off"
@@ -336,6 +347,7 @@ export function StudySessionClient({ session }: { session: Session }) {
               placeholder="힌트 없이 먼저 적어 보세요."
             />
           </label>
+          <p id="answer-guidance" className="muted">{assessmentLocked ? '평가 중에는 도움을 볼 수 없어요. 답안을 적으면 제출할 수 있어요.' : '답안을 적으면 제출할 수 있어요.'}</p>
           <label className="check-line">
             <input
               type="checkbox"
@@ -345,7 +357,7 @@ export function StudySessionClient({ session }: { session: Session }) {
             />
             <span>정답이어도 어려웠어요</span>
           </label>
-          <div className="button-row">
+          <div className="study-actions">
             <button className="button-secondary" type="button" onClick={() => reveal('HINT')} disabled={assessmentLocked || answered || Boolean(pending) || lockedForUnresolvedSubmit}>
               {pending === `HINT:${item.id}` ? <Loader2 className="spin" size={18} aria-hidden="true" /> : <Lightbulb size={18} aria-hidden="true" />}
               힌트
@@ -370,7 +382,7 @@ export function StudySessionClient({ session }: { session: Session }) {
             답 열기
           </button>
           {currentReveal?.ANSWER ? (
-            <div className="button-row">
+            <div className="paired-actions">
               <button className="button-secondary" type="button" disabled={answered || Boolean(pending) || Boolean(frozenSubmission)} onClick={() => submitSelfRating('AGAIN')}>
                 다시 볼래요
               </button>
@@ -406,14 +418,14 @@ export function StudySessionClient({ session }: { session: Session }) {
       {currentReveal?.ANSWER ? (
         <div className="notice">
           <strong>답</strong>
-          <p lang="en">{currentReveal.ANSWER.text}</p>
+          <p className="english-phrase" lang="en">{currentReveal.ANSWER.text}</p>
           {currentReveal.ANSWER.audioUrl ? <audio controls src={currentReveal.ANSWER.audioUrl}>오디오를 재생할 수 없습니다.</audio> : null}
         </div>
       ) : null}
       {currentResult ? (
         <div className={currentResult.correct === false ? 'notice notice-error' : 'notice notice-success'}>
-          <strong>{resultCopy(currentResult.result)}</strong>
-          <p lang="en">{currentResult.target}</p>
+          <h2 ref={resultRef} tabIndex={-1}>{resultCopy(currentResult.result)}</h2>
+          <p className="english-phrase" lang="en">{currentResult.target}</p>
           <p>{currentResult.explanation}</p>
           <p className="muted">
             {currentResult.form === 'APPLICATION' || currentResult.reviewReason === 'assessment-result'

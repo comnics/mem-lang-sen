@@ -52,7 +52,7 @@ export function AuthForm({ mode, initialMessage = null }: { mode: AuthMode; init
   }[mode];
 
   return (
-    <form className="card stack" onSubmit={submit}>
+    <form className="card stack" onSubmit={submit} aria-describedby={error ? 'auth-error' : undefined}>
       {needsName ? (
         <label className="field">
           이름
@@ -79,7 +79,7 @@ export function AuthForm({ mode, initialMessage = null }: { mode: AuthMode; init
         </label>
       ) : null}
       {error ? (
-        <p className="notice notice-error" role="alert">
+        <p id="auth-error" className="notice notice-error" role="alert">
           {error}
         </p>
       ) : null}
@@ -90,7 +90,7 @@ export function AuthForm({ mode, initialMessage = null }: { mode: AuthMode; init
       ) : null}
       <button className="button button-full" type="submit" disabled={pending}>
         {pending ? <Loader2 size={18} className="spin" aria-hidden="true" /> : <ArrowRight size={18} aria-hidden="true" />}
-        {buttonCopy}
+        {pending ? '처리 중' : buttonCopy}
       </button>
     </form>
   );
