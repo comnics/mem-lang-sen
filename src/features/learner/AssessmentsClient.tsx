@@ -74,7 +74,7 @@ export function AssessmentsClient({ initial }: { initial: AssessmentDTO }) {
         <Metric title="주간 응용" summary={summarize(buckets.weeklyApplication)} />
       </div>
 
-      <div className="button-row">
+      <div className="form-actions">
         <button className="button" type="button" onClick={() => start('RETENTION')} disabled={!retentionReady || Boolean(pending)}>
           {pending === 'RETENTION' ? <Loader2 className="spin" size={18} aria-hidden="true" /> : <ArrowRight size={18} aria-hidden="true" />}
           7/30일 유지 평가 시작

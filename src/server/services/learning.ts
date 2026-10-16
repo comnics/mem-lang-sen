@@ -535,9 +535,14 @@ function answerDto(
 }
 
 async function withSignedAudio<T extends { audioPath?: string }>(result: T) {
-  const audioUrl = result.audioPath ? await signedAudioUrl(result.audioPath) : undefined;
   const response = { ...result };
   delete response.audioPath;
+  let audioUrl: string | undefined;
+  try {
+    audioUrl = result.audioPath ? await signedAudioUrl(result.audioPath) : undefined;
+  } catch {
+    // Optional audio must not turn a committed answer (or replay) into a failed acknowledgment.
+  }
   return { ...response, audioUrl };
 }
 
