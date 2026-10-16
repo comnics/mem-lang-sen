@@ -63,17 +63,18 @@ export function TodayQueueClient({ initialQueue }: { initialQueue: TodayQueueDTO
         <Link className="button-ghost" href="/onboarding">일정 설정</Link>
       </div>
 
-      <div className="segmented-control" aria-label="학습 모드">
+      <div className="segmented-control" role="radiogroup" aria-label="학습 모드">
         <label>
-          <input type="radio" name="todayMode" value="WRITTEN" checked={mode === 'WRITTEN'} onChange={() => loadMode('WRITTEN')} />
+          <input type="radio" disabled={Boolean(pending)} name="todayMode" value="WRITTEN" checked={mode === 'WRITTEN'} onChange={() => loadMode('WRITTEN')} />
           <span>{pending === 'mode:WRITTEN' ? <Loader2 className="spin" size={16} aria-hidden="true" /> : null} 입력</span>
         </label>
         <label>
-          <input type="radio" name="todayMode" value="SPOKEN" checked={mode === 'SPOKEN'} onChange={() => loadMode('SPOKEN')} />
+          <input type="radio" disabled={Boolean(pending)} name="todayMode" value="SPOKEN" checked={mode === 'SPOKEN'} onChange={() => loadMode('SPOKEN')} />
           <span>{pending === 'mode:SPOKEN' ? <Loader2 className="spin" size={16} aria-hidden="true" /> : null} 말하기</span>
         </label>
       </div>
 
+      <p className="sr-only" role="status">{pending ? '학습을 불러오는 중' : ''}</p>
       <div className="stats-grid">
         <div className="stat">
           <strong>{queue.dueCount}</strong>

@@ -18,24 +18,31 @@ export function SentenceRecordsClient({ sentence }: { sentence: SentenceRecord }
   const [reportDetail, setReportDetail] = useState('');
   const [message, setMessage] = useState<string | null>(null);
 
-  async function save() {
-    const response = await fetch('/api/v1/sentence-preferences', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sentenceId: sentence.sentenceId, note, hidden, selfReportedMemorized }),
-    });
-    setMessage(response.ok ? '저장했습니다.' : ((await response.json().catch(() => ({}))).error ?? '저장하지 못했습니다.'));
-  }
+  const [pending, setPending] = useState<'save' | 'report' | null>(null);
+  const [failed, setFailed] = useState(false);
 
-  async function report() {
-    if (!sentence.sentenceVersionId || !reportDetail.trim()) return;
-    const response = await fetch('/api/v1/reports', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sentenceVersionId: sentence.sentenceVersionId, reason: 'OTHER', detail: reportDetail }),
-    });
-    setMessage(response.ok ? '신고를 보냈습니다.' : ((await response.json().catch(() => ({}))).error ?? '신고하지 못했습니다.'));
-    if (response.ok) setReportDetail('');
+  async function perform(action: 'save' | 'report') {
+    if (pending || (action === 'report' && (!sentence.sentenceVersionId || !reportDetail.trim()))) return;
+    setPending(action);
+    setMessage(null);
+    setFailed(false);
+    try {
+      const response = await fetch(action === 'save' ? '/api/v1/sentence-preferences' : '/api/v1/reports', {
+        method: action === 'save' ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(action === 'save'
+          ? { sentenceId: sentence.sentenceId, note, hidden, selfReportedMemorized }
+          : { sentenceVersionId: sentence.sentenceVersionId, reason: 'OTHER', detail: reportDetail }),
+      });
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error ?? '요청을 처리하지 못했습니다.');
+      setMessage(action === 'save' ? '저장했습니다.' : '신고를 보냈습니다.');
+      if (action === 'report') setReportDetail('');
+    } catch (error) {
+      setFailed(true);
+      setMessage(error instanceof Error ? error.message : '요청을 처리하지 못했습니다.');
+    } finally {
+      setPending(null);
+    }
   }
 
   return (
@@ -53,14 +60,14 @@ export function SentenceRecordsClient({ sentence }: { sentence: SentenceRecord }
         <span>오늘 큐에서 숨기기</span>
       </label>
       <div className="button-row">
-        <button className="button-secondary" type="button" onClick={save}><Save size={18} aria-hidden="true" />저장</button>
+        <button className="button-secondary" type="button" onClick={() => perform('save')} disabled={Boolean(pending)}><Save size={18} aria-hidden="true" />{pending === 'save' ? '저장 중' : '저장'}</button>
       </div>
       <label className="field">
         문장 신고
         <input className="input" value={reportDetail} onChange={(event) => setReportDetail(event.target.value)} placeholder="오탈자, 정답, 음원 문제를 적어 주세요." />
       </label>
-      <button className="button-ghost" type="button" onClick={report} disabled={!sentence.sentenceVersionId || !reportDetail.trim()}><Flag size={18} aria-hidden="true" />신고</button>
-      {message ? <p className="muted">{message}</p> : null}
+      <button className="button-ghost" type="button" onClick={() => perform('report')} disabled={Boolean(pending) || !sentence.sentenceVersionId || !reportDetail.trim()}><Flag size={18} aria-hidden="true" />{pending === 'report' ? '신고 중' : '신고'}</button>
+      {message ? <p className={failed ? 'notice notice-error' : 'notice notice-success'} role={failed ? 'alert' : 'status'}>{message}</p> : null}
     </div>
   );
 }
