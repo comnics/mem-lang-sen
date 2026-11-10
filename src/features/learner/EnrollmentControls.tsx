@@ -76,7 +76,7 @@ export function EnrollmentControls({ setId, enrolled, paused }: { setId: string;
       {isEnrolled && isPaused ? (
         <p className="notice">이 세트는 오늘 자동 큐에서 제외됩니다. 아래 버튼으로 수동 학습은 계속 시작할 수 있습니다.</p>
       ) : null}
-      <div className="button-row">
+      <div className="form-actions">
         <button className="button-secondary" type="button" disabled={Boolean(pending)} onClick={() => updateEnrollment(!isEnrolled)}>
           {pending === 'enroll' ? <Loader2 className="spin" size={18} aria-hidden="true" /> : <BookMarked size={18} aria-hidden="true" />}
           {isEnrolled ? '등록 해제' : '내 세트로 등록'}

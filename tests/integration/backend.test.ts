@@ -1,14 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { config } from 'dotenv';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 config({ path: '.env.local', quiet: true });
+
+const signing = vi.hoisted(() => ({ failure: false }));
 
 vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: () => ({
     storage: {
       from: () => ({
-        createSignedUrl: async (path: string) => ({ data: { signedUrl: `https://audio.test/${path}` }, error: null }),
+        createSignedUrl: async (path: string) => signing.failure
+          ? { data: null, error: { message: 'Storage unavailable' } }
+          : { data: { signedUrl: `https://audio.test/${path}` }, error: null },
       }),
     },
   }),
@@ -30,6 +34,7 @@ const createdSentenceIds = new Set<string>();
 const createdAudioAssetIds = new Set<string>();
 
 describe('backend service integration', () => {
+  afterEach(() => { signing.failure = false; });
   beforeAll(async () => {
     const databaseUrl = process.env.DATABASE_URL;
     if (!databaseUrl) throw new Error('DATABASE_URL is required. Run pnpm local:setup before integration tests.');
@@ -170,6 +175,32 @@ describe('backend service integration', () => {
     const second = await learning.answerSessionItem(user.id, sessionId, { itemId, eventId, answer: 'Integration target idempotent.' });
 
     expect(second).toEqual(first);
+  });
+
+  it('acknowledges answers and replays during a signing outage and recovers without extra events', async () => {
+    const slug = 'audio-outage';
+    const user = await createUser(slug);
+    const { set } = await createPublishedLearningSet(slug);
+    await learning.enrollSet(user.id, set.id);
+    const { id: sessionId } = await learning.createStudySession(user.id, { setId: set.id, mode: 'WRITTEN' });
+    const itemId = (await learning.getSession(user.id, sessionId)).items[0]!.id;
+    const input = { itemId, eventId: randomUUID(), answer: `Integration target ${slug}.` };
+
+    signing.failure = true;
+    const first = await learning.answerSessionItem(user.id, sessionId, input);
+    expect(first).toMatchObject({ correct: true, result: 'CORRECT', completed: true, target: input.answer });
+    expect(first.audioUrl).toBeUndefined();
+    expect(first).not.toHaveProperty('audioPath');
+    expect(await learning.answerSessionItem(user.id, sessionId, input)).toEqual(first);
+    await expect(learning.answerSessionItem(user.id, sessionId, { ...input, answer: 'Changed' })).rejects.toMatchObject({ status: 409 });
+    expect(await db.reviewEvent.count({ where: { sessionItemId: itemId } })).toBe(1);
+    expect(await db.studySession.findUniqueOrThrow({ where: { id: sessionId } })).toMatchObject({ status: 'COMPLETED' });
+
+    signing.failure = false;
+    const recovered = await learning.answerSessionItem(user.id, sessionId, input);
+    expect(recovered).toEqual({ ...first, audioUrl: expect.stringMatching(/^https:\/\/audio\.test\//) });
+    expect(recovered).not.toHaveProperty('audioPath');
+    expect(await db.reviewEvent.count({ where: { sessionItemId: itemId } })).toBe(1);
   });
 
   it('returns the first answer result when identical simultaneous submits use the same event', async () => {

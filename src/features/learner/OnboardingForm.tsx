@@ -71,7 +71,7 @@ export function OnboardingForm({
   }
 
   return (
-    <form className="card stack" onSubmit={submit}>
+    <form className="card stack" onSubmit={submit} aria-describedby={error ? 'plan-error' : undefined}>
       <label className="field">
         표시 이름
         <input className="input" name="displayName" defaultValue={studyPlan?.displayName ?? displayName ?? ''} required maxLength={80} />
@@ -183,7 +183,7 @@ export function OnboardingForm({
                   <option value="ADD">학습 추가</option>
                   <option value="SKIP">쉬는 날</option>
                 </select>
-                <button className="button-ghost icon-button" type="button" onClick={() => setExceptions((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label="예외 삭제">
+                <button className="button-ghost icon-button" type="button" onClick={() => setExceptions((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`${exception.date} 예외 삭제`}>
                   <Trash2 size={18} aria-hidden="true" />
                 </button>
               </div>
@@ -197,10 +197,10 @@ export function OnboardingForm({
         <input name="paused" type="checkbox" defaultChecked={studyPlan?.paused ?? false} />
         <span><Pause size={18} aria-hidden="true" /> 전체 오늘 학습을 잠시 멈추기</span>
       </label>
-      {error ? <p className="notice notice-error" role="alert">{error}</p> : null}
+      {error ? <p id="plan-error" className="notice notice-error" role="alert">{error}</p> : null}
       <button className="button button-full" type="submit" disabled={pending}>
         {pending ? <Loader2 className="spin" size={18} aria-hidden="true" /> : <Check size={18} aria-hidden="true" />}
-        오늘 학습으로 이동
+        {pending ? '설정 저장 중' : '오늘 학습으로 이동'}
       </button>
       <p className="muted">저장한 일정은 오늘 학습 큐와 복습 반복에 반영됩니다.</p>
     </form>

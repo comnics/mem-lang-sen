@@ -14,7 +14,7 @@ export default async function HistoryPage() {
       <PageHeader eyebrow="기록" title="학습 세션 기록">
         완료와 진행 중 기록을 사실 그대로 보여줍니다. 말하기는 자기확인으로만 표시합니다.
       </PageHeader>
-      <div className="button-row">
+      <div className="paired-actions">
         <Link className="button-secondary" href="/calendar">달력 보기</Link>
         <Link className="button-secondary" href="/assessments">평가 보기</Link>
       </div>

@@ -24,12 +24,13 @@ describe('development login boundary', () => {
   it('blocks production before authenticating even with credentials present', async () => {
     vi.stubEnv('NODE_ENV', 'production');
     expect(devLoginEnabled()).toBe(false);
-    expect((await request()).status).toBe(404);
+    for (const role of ['ADMIN', 'USER']) expect((await request(role)).status).toBe(404);
     expect(mocks.signIn).not.toHaveBeenCalled();
   });
   it('blocks hosted development', async () => {
     vi.stubEnv('VERCEL', '1');
-    expect((await request()).status).toBe(404);
+    expect(devLoginEnabled()).toBe(false);
+    for (const role of ['ADMIN', 'USER']) expect((await request(role)).status).toBe(404);
     expect(mocks.signIn).not.toHaveBeenCalled();
   });
   it('uses server credentials and checks the current role', async () => {
@@ -37,6 +38,16 @@ describe('development login boundary', () => {
     const response = await request();
     expect(await response.json()).toEqual({ redirectTo: '/admin' });
     expect(mocks.signIn).toHaveBeenCalledWith({ email: 'admin@example.test', password: 'server-only-password' });
+  });
+  it.each([true, false])('uses USER credentials and routes onboarded=%s users', async (onboarded) => {
+    vi.stubEnv('DEV_LOGIN_USER_EMAIL', 'user@example.test');
+    vi.stubEnv('DEV_LOGIN_USER_PASSWORD', 'user-test-password');
+    expect(devLoginEnabled()).toBe(true);
+    mocks.user.mockResolvedValue({ role: 'USER', status: 'ACTIVE', onboarded });
+    const response = await request('USER');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ redirectTo: onboarded ? '/today' : '/onboarding' });
+    expect(mocks.signIn).toHaveBeenCalledWith({ email: 'user@example.test', password: 'user-test-password' });
   });
   it('signs out a mismatched or suspended account without elevating it', async () => {
     for (const user of [{ role: 'USER', status: 'ACTIVE' }, { role: 'ADMIN', status: 'SUSPENDED' }]) {

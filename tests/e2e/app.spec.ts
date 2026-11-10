@@ -92,19 +92,48 @@ test('admin publishes audio sentence; learner enrolls, recalls, reveals and reco
   await noOverflow(learner);
   await learner.screenshot({ path: 'test-results/mobile-study.png', fullPage: true });
   await learner.getByLabel('내가 떠올린 영어 문장').fill(target);
-  // Simulate a response lost AFTER the server commits, then retry the frozen payload.
-  await learner.route('**/api/v1/study-sessions/*/answers', async (route) => {
-    await route.fetch();
-    await route.abort('failed');
-  }, { times: 1 });
-  await learner.getByRole('button', { name: '제출', exact: true }).click();
-  await expect(learner.getByRole('status')).toContainText('저장 확인 중');
-  await expect(learner.getByLabel('내가 떠올린 영어 문장')).toBeDisabled();
-  await learner.getByRole('button', { name: '같은 답안 다시 전송', exact: true }).click();
-  await expect(learner.getByText('정답으로 기록했어요', { exact: true })).toBeVisible();
-  const audioSrc = await learner.locator('audio').first().getAttribute('src');
+  // Break only this test's asset path so real Storage signing fails, without mocking the answer route.
+  const outageDb = new Client({ connectionString: process.env.DIRECT_URL });
+  await outageDb.connect();
+  const { rows: [asset] } = await outageDb.query<{ id: string; path: string }>(
+    'SELECT a.id, a.path FROM app."AudioAsset" a JOIN app."SentenceVersion" sv ON sv."audioAssetId"=a.id WHERE sv.prompt=$1', [prompt],
+  );
+  let submitted: { itemId: string; eventId: string; answer: string };
+  try {
+    await outageDb.query('UPDATE app."AudioAsset" SET path=$1 WHERE id=$2', [`missing/${randomUUID()}.wav`, asset.id]);
+    const responsePromise = learner.waitForResponse((response) => response.url().endsWith(`/study-sessions/${sessionId}/answers`) && response.request().method() === 'POST');
+    await learner.getByRole('button', { name: '제출', exact: true }).click();
+    const response = await responsePromise;
+    submitted = response.request().postDataJSON();
+    expect(response.status()).toBe(200);
+    const first = await response.json();
+    expect(first).toMatchObject({ result: 'CORRECT', correct: true, completed: true });
+    expect(first).not.toHaveProperty('audioUrl');
+    expect(first).not.toHaveProperty('audioPath');
+    await expect(learner.getByText('정답으로 기록했어요', { exact: true })).toBeVisible();
+    await expect.poll(() => learner.evaluate(() => Object.keys(sessionStorage)
+      .filter((key) => key.startsWith('mem-lang-sen:outbox:v1:'))
+      .flatMap((key) => JSON.parse(sessionStorage.getItem(key) ?? '[]')))).toEqual([]);
+    const replay = await learner.request.post(`/api/v1/study-sessions/${sessionId}/answers`, { headers: { Origin: origin }, data: submitted });
+    expect(replay.status()).toBe(200);
+    expect(await replay.json()).toEqual(first);
+    const changed = await learner.request.post(`/api/v1/study-sessions/${sessionId}/answers`, { headers: { Origin: origin }, data: { ...submitted, answer: 'Changed' } });
+    expect(changed.status()).toBe(409);
+  } finally {
+    await outageDb.query('UPDATE app."AudioAsset" SET path=$1 WHERE id=$2', [asset.path, asset.id]);
+    await outageDb.end();
+  }
+  const recovered = await learner.request.post(`/api/v1/study-sessions/${sessionId}/answers`, { headers: { Origin: origin }, data: submitted! });
+  expect(recovered.status()).toBe(200);
+  const audioSrc = (await recovered.json()).audioUrl;
   expect(audioSrc).toContain('/storage/v1/object/sign/');
-  expect((await learner.request.get(audioSrc!)).ok()).toBeTruthy();
+  expect((await learner.request.get(audioSrc)).ok()).toBeTruthy();
+  const countDb = new Client({ connectionString: process.env.DIRECT_URL });
+  await countDb.connect();
+  try {
+    const { rows: [row] } = await countDb.query('SELECT count(*)::int AS count FROM app."ReviewEvent" WHERE "sessionItemId"=$1', [submitted!.itemId]);
+    expect(row.count).toBe(1);
+  } finally { await countDb.end(); }
   await learner.reload();
   await expect(learner.getByRole('button', { name: '제출', exact: true })).toBeDisabled();
   await learner.goto('/history');

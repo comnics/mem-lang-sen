@@ -28,7 +28,7 @@
 }
 
 html {
-  min-width: 360px;
+  min-width: 0;
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font-sans);
@@ -63,7 +63,7 @@ button {
 }
 
 :focus-visible {
-  outline: 3px solid rgb(188 97 67 / 55%);
+  outline: 3px solid var(--primary);
   outline-offset: 3px;
 }
 
@@ -72,7 +72,7 @@ button {
   width: min(100%, var(--max-learner));
   min-height: 100vh;
   margin: 0 auto;
-  padding: 20px 18px 96px;
+  padding: 20px 16px calc(104px + env(safe-area-inset-bottom));
 }
 
 .public-shell {
@@ -98,8 +98,9 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin: 0 -18px 16px;
-  padding: 14px 18px;
+  margin: 0 -16px 16px;
+  padding: 8px 16px;
+  min-height: 64px;
   background: rgb(246 245 240 / 92%);
   backdrop-filter: blur(16px);
   border-bottom: 1px solid rgb(216 210 197 / 72%);
@@ -135,7 +136,7 @@ button {
   gap: 4px;
   width: min(100%, var(--max-learner));
   margin: 0 auto;
-  padding: 8px 10px max(8px, env(safe-area-inset-bottom));
+  padding: 8px 8px max(8px, env(safe-area-inset-bottom));
   background: rgb(255 253 248 / 95%);
   border-top: 1px solid var(--border);
   box-shadow: 0 -12px 34px rgb(32 60 50 / 9%);
@@ -174,8 +175,8 @@ button {
 .hero-title {
   margin: 0;
   color: var(--ink);
-  font-size: clamp(30px, 7vw, 48px);
-  line-height: 1.05;
+  font-size: 28px;
+  line-height: 36px;
   letter-spacing: 0;
 }
 
@@ -188,13 +189,13 @@ button {
 
 .english-phrase {
   font-family: var(--font-serif);
-  font-size: clamp(30px, 8vw, 54px);
-  line-height: 1.08;
+  font-size: 24px;
+  line-height: 34px;
   letter-spacing: 0;
 }
 
 .card {
-  padding: 22px;
+  padding: 16px;
   background: rgb(255 253 248 / 92%);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -250,7 +251,7 @@ button {
   justify-content: center;
   gap: 8px;
   min-height: 48px;
-  padding: 0 18px;
+  padding: 12px 18px;
   color: var(--surface);
   font-weight: 800;
   text-align: center;
@@ -315,11 +316,15 @@ button {
 .textarea,
 .select {
   width: 100%;
+  min-width: 0;
+  font-size: 16px;
+  line-height: 24px;
   min-height: 48px;
   padding: 12px 14px;
   color: var(--ink);
   background: #fffefa;
   border: 1px solid var(--border);
+  border-color: var(--ink-soft);
   border-radius: 14px;
 }
 
@@ -407,8 +412,8 @@ button {
 
 .weekday-grid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .check-pill {
@@ -435,6 +440,7 @@ button {
 }
 
 .check-line {
+  min-height: 44px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -532,11 +538,12 @@ button {
 
 .calendar-day span {
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: 14px;
+  line-height: 21px;
 }
 
 .calendar-day-muted {
-  opacity: 0.68;
+  color: var(--ink-soft);
 }
 
 .assessment-grid,
@@ -604,9 +611,7 @@ button {
 
   .bottom-nav {
     bottom: 18px;
-    left: 50%;
     max-width: 560px;
-    transform: translateX(-50%);
     border: 1px solid var(--border);
     border-radius: 24px;
   }
@@ -616,11 +621,11 @@ button {
   }
 
   .assessment-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .calendar-month {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -635,9 +640,57 @@ button {
   }
 }
 
-/* Korean recall prompts stay readable above the mobile keyboard. */
-.recall-prompt { font-family: inherit; font-size: clamp(1.25rem, 4.8vw, 1.8rem); font-weight: 700; line-height: 1.5; word-break: keep-all; overflow-wrap: anywhere; }
-h1, h2, p { word-break: keep-all; overflow-wrap: anywhere; }
-
+/* Shared learner content must shrink and wrap without hiding overflow. */
+.app-shell, .public-shell { overflow-wrap: anywhere; line-height: 1.5; }
+.app-shell *, .public-shell * { scroll-margin-block: 80px; }
+.stack > *, .stack-lg > *, .app-main > *, .grid-2 > *, .split-row > * { min-width: 0; }
+h1, h2, h3, p { word-break: keep-all; overflow-wrap: anywhere; }
+fieldset.field { min-width: 0; margin: 0; padding: 0; border: 0; }
+.split-row { flex-wrap: wrap; }
+.badge { max-width: 100%; }
+.button svg, .button-secondary svg, .button-ghost svg, .check-line input { flex-shrink: 0; }
+.check-pill, .segmented-control label { position: relative; }
+.check-pill:has(input:focus-visible), .segmented-control input:focus-visible + span {
+  outline: 3px solid var(--primary);
+  outline-offset: 3px;
+}
+.segmented-control input:disabled + span { cursor: wait; opacity: .65; }
+.check-pill:has(input:checked) span::after { content: ' ✓'; }
+.stats-grid { gap: 8px; }
+.stat { padding: 12px; }
+.calendar-month { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.calendar-cell { padding: 12px; font-size: 14px; line-height: 21px; }
+audio { width: 100%; max-width: 100%; }
+.recall-prompt { margin: 0; font-family: inherit; font-size: 22px; font-weight: 700; line-height: 33px; }
+.study-card { gap: 16px; }
+.study-card .card-quiet { padding: 12px; }
+.study-actions, .paired-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.study-actions > .button { grid-column: 1 / -1; }
+.topbar .brand-mark { flex-shrink: 0; }
 .topbar > .button-ghost { min-width: 0; }
-.topbar > .button-ghost span { max-width: 14ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar > .button-ghost span { max-width: 12ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card h2, .card-quiet h2 { font-size: 20px; line-height: 28px; }
+
+@media (max-width: 719px) {
+  /* Text editing releases overlays, without affecting checkbox/select navigation. */
+  body:has(:is(textarea, input:not([type]), input[type='text'], input[type='email'], input[type='password'], input[type='number'], [contenteditable='true']):focus) .topbar { position: static; }
+  /* Keep document height stable when blur occurs between pointer down and up. */
+  body:has(:is(textarea, input:not([type]), input[type='text'], input[type='email'], input[type='password'], input[type='number'], [contenteditable='true']):focus) .bottom-nav { visibility: hidden; }
+}
+@media (max-width: 359px) {
+  .app-shell, .public-shell { padding-inline: 12px; }
+  .topbar { margin-inline: -12px; padding-inline: 12px; }
+  .topbar > .button-ghost span { max-width: 8ch; }
+  .topbar > .button-ghost { padding-inline: 10px; }
+  .calendar-month, .calendar-strip, .paired-actions { grid-template-columns: minmax(0, 1fr); }
+  .stat { padding: 8px; }
+  .stat strong { font-size: 20px; }
+  .button-row > :is(button, a) { flex: 1 1 100%; }
+}
+@media (min-width: 720px) {
+  .card { padding: 24px; }
+  .weekday-grid { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  .page-heading h1, .hero-title { font-size: 36px; line-height: 44px; }
+  .recall-prompt { font-size: 28px; line-height: 42px; }
+  .english-phrase { font-size: 32px; line-height: 44px; }
+}
