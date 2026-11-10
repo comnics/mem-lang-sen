@@ -5,6 +5,7 @@ import { HttpError } from '@/server/http';
 import { addCalendarDays, dateStart, defaultSchedule, isStudyDate, localDate, nextStudyAt } from '@/domain/scheduling';
 import { completeStudyPlanSchema, studyPlanInputSchema, type StudyPlanInput } from '@/domain/study-plan';
 import type { StudyMode, StudyPlanValue, TodayQueueDTO } from '@/domain/m4-types';
+import { recoveryBudget } from '@/domain/recovery-budget';
 
 type Database = Prisma.TransactionClient;
 const DAY = 86_400_000;
@@ -91,8 +92,7 @@ async function buildQueue(tx: Database, userId: string, mode: StudyMode, now: Da
     tx.studySession.findMany({ where: { userId, purpose: { in: ['DAILY', 'ASSESSMENT'] }, status: 'ACTIVE', studyDate: today, timezone: plan.timezone }, orderBy: { createdAt: 'asc' }, include: { items: { where: { reviewEvent: null } } } }),
     tx.reviewEvent.findFirst({ where: { userId }, orderBy: { performedAt: 'desc' }, select: { performedAt: true } }),
   ]);
-  const recovery = storedPlan?.recoveryDate === today || Boolean(lastEvent && now.getTime() - lastEvent.performedAt.getTime() >= 7 * DAY);
-  const effectiveMinutes = recovery ? Math.min(plan.dailyMinutes, 3) : plan.dailyMinutes;
+  const { recovery, effectiveMinutes } = recoveryBudget({ ...plan, recoveryDate: storedPlan?.recoveryDate }, lastEvent, now, today);
   const spentSeconds = dayEvents.reduce((sum, event) => sum + event.item.estimatedSeconds, 0);
   const stateById = new Map(states.map((state) => [state.sentenceId, state]));
   const preferenceById = new Map(preferences.map((preference) => [preference.sentenceId, preference]));

@@ -311,6 +311,66 @@ describe('M5 assessments integration', () => {
   });
 
 
+  it('persists assessment-first recovery across answers, restarts, modes and the next day', async () => {
+    const now = new Date('2026-10-14T09:00:00Z');
+    const old = new Date('2026-10-06T09:00:00Z');
+    const user = await createUser('assessment-first-recovery');
+    for (let index = 0; index < 16; index += 1) {
+      const slug = `assessment-first-recovery-${index}`;
+      await createPublishedSet(user.id, slug, { withApplication: true });
+      await seedWrittenReview(user.id, slug, old);
+    }
+    const scheduling = await import('@/server/services/scheduling');
+    const session = await assessments.createAssessmentSession(user.id, { kind: 'RETENTION' }, now);
+    expect(await db.studyPlan.findUniqueOrThrow({ where: { userId: user.id } })).toMatchObject({ recoveryDate: '2026-10-14' });
+    const items = await db.sessionItem.findMany({ where: { sessionId: session.id }, include: { sentenceVersion: true }, orderBy: { position: 'asc' } });
+    expect(items).toHaveLength(6);
+    expect(items.reduce((sum, item) => sum + item.estimatedSeconds, 0)).toBe(180);
+    const answer = async (item: typeof items[number]) => learning.answerSessionItem(user.id, session.id, {
+      itemId: item.id, eventId: randomUUID(), answer: item.sentenceVersion.target,
+    }, now);
+    await answer(items[0]!);
+    await expect(assessments.createAssessmentSession(user.id, { kind: 'RETENTION' }, now)).resolves.toEqual(session);
+    // Partially answered items remain reserved; another mode cannot allocate more.
+    for (const mode of ['WRITTEN', 'SPOKEN'] as const) {
+      expect(await scheduling.getTodayQueue(user.id, mode, now)).toMatchObject({ recovery: true, effectiveMinutes: 3, remainingSeconds: 0 });
+    }
+    await expect(scheduling.createTodaySession(user.id, 'SPOKEN', now)).rejects.toMatchObject({ status: 409 });
+    for (const item of items.slice(1)) await answer(item);
+    for (const kind of ['RETENTION', 'WEEKLY'] as const) {
+      await expect(assessments.createAssessmentSession(user.id, { kind }, now)).rejects.toMatchObject({ status: 409 });
+    }
+    for (const mode of ['WRITTEN', 'SPOKEN'] as const) {
+      expect(await scheduling.getTodayQueue(user.id, mode, now)).toMatchObject({ recovery: true, remainingSeconds: 0 });
+      await expect(scheduling.createTodaySession(user.id, mode, now)).rejects.toMatchObject({ status: 409 });
+    }
+    const tomorrow = new Date('2026-10-15T09:00:00Z');
+    expect(await scheduling.getTodayQueue(user.id, 'SPOKEN', tomorrow)).toMatchObject({ recovery: false, effectiveMinutes: 20, remainingSeconds: 1200 });
+    const next = await assessments.createAssessmentSession(user.id, { kind: 'RETENTION' }, tomorrow);
+    expect((await db.sessionItem.findMany({ where: { sessionId: next.id } })).length).toBeGreaterThan(6);
+  });
+
+  it('also persists the recovery date when weekly assessment is the first entry point', async () => {
+    const now = new Date('2026-10-14T09:00:00Z');
+    const user = await createUser('weekly-first-recovery');
+    for (let index = 0; index < 8; index += 1) {
+      const slug = `weekly-first-recovery-${index}`;
+      await createPublishedSet(user.id, slug, { withApplication: true });
+      await seedWrittenReview(user.id, slug, new Date('2026-10-06T09:00:00Z'));
+    }
+    const session = await assessments.createAssessmentSession(user.id, { kind: 'WEEKLY' }, now);
+    expect(await db.studyPlan.findUniqueOrThrow({ where: { userId: user.id } })).toMatchObject({ recoveryDate: '2026-10-14' });
+    const items = await db.sessionItem.findMany({ where: { sessionId: session.id }, include: { sentenceVersion: true }, orderBy: { position: 'asc' } });
+    const reserved = items.reduce((sum, item) => sum + item.estimatedSeconds, 0);
+    expect(reserved).toBeGreaterThan(0);
+    expect(reserved).toBeLessThanOrEqual(180);
+    const first = items[0]!;
+    expect(first.form).toBe('RECALL');
+    await learning.answerSessionItem(user.id, session.id, { itemId: first.id, eventId: randomUUID(), answer: first.sentenceVersion.target }, now);
+    const scheduling = await import('@/server/services/scheduling');
+    expect(await scheduling.getTodayQueue(user.id, 'SPOKEN', now)).toMatchObject({ recovery: true, effectiveMinutes: 3, remainingSeconds: 180 - reserved });
+  });
+
   it('keeps the weekly denominator fixed after more sentences are studied and supports small cohorts with application', async () => {
     const now = new Date('2026-10-14T09:00:00Z');
     const user = await createUser('weekly-fixed');
