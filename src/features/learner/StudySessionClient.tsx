@@ -60,6 +60,7 @@ export function StudySessionClient({ session }: { session: Session }) {
   const [reveals, setReveals] = useState<Record<string, Partial<Record<'HINT' | 'ANSWER', Reveal>>>>({});
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reauthRequired, setReauthRequired] = useState(false);
   const [outboxWarning, setOutboxWarning] = useState<string | null>(null);
   const [outboxCount, setOutboxCount] = useState(0);
   const pendingRef = useRef<string | null>(null);
@@ -174,6 +175,7 @@ export function StudySessionClient({ session }: { session: Session }) {
       });
       const data = (await response.json().catch(() => ({}))) as Result & { error?: string };
       if (response.ok) {
+        setReauthRequired(false);
         setResults((current) => ({ ...current, [submission.body.itemId]: data }));
         removePendingOutbox(submission.body.eventId);
         setFrozenSubmissions((current) => removeKey(current, submission.body.itemId));
@@ -185,6 +187,17 @@ export function StudySessionClient({ session }: { session: Session }) {
         setFrozenSubmissions((current) => removeKey(current, submission.body.itemId));
         router.refresh();
         return;
+      }
+      // Authentication expiry and transient client errors do not acknowledge the answer.
+      // Keep both the stored payload and its in-memory lock for an identical replay.
+      if (response.status === 401) {
+        setReauthRequired(true);
+        setError('로그인이 만료되었습니다. 같은 계정으로 다시 로그인한 뒤 대기 제출을 다시 전송해 주세요.');
+        return 'reauthenticate' as const;
+      }
+      if (response.status === 408 || response.status === 429) {
+        setError('아직 저장 확인이 끝나지 않았습니다. 잠시 후 같은 답안을 다시 전송해 주세요.');
+        return 'retry-later' as const;
       }
       if (response.status >= 400 && response.status < 500) {
         setError(data.error ?? '입력값을 확인해 주세요.');
@@ -208,7 +221,8 @@ export function StudySessionClient({ session }: { session: Session }) {
       const restored = loadSessionOutbox();
       setOutboxCount(restored.length);
       for (const entry of restored) {
-        await sendAnswer({ mode: session.mode, body: entry.payload });
+        const outcome = await sendAnswer({ mode: session.mode, body: entry.payload });
+        if (outcome === 'reauthenticate' || outcome === 'retry-later') break;
       }
     } finally {
       retryingRef.current = false;
@@ -266,6 +280,7 @@ export function StudySessionClient({ session }: { session: Session }) {
       <div className="notice">
         <p>저장 확인 대기 중인 제출 {outboxCount}개가 이 기기에 남아 있습니다.</p>
         <div className="button-row">
+          {reauthRequired ? <Link className="button-secondary" href="/login">같은 계정으로 다시 로그인</Link> : null}
           <button className="button-secondary" type="button" onClick={retryOutbox} disabled={Boolean(pendingRef.current) || retryingRef.current}>
             {pending || retryingRef.current ? <Loader2 className="spin" size={18} aria-hidden="true" /> : <Send size={18} aria-hidden="true" />}
             대기 제출 다시 전송
