@@ -128,6 +128,66 @@ test('outbox retries the same committed event once after response loss and clear
   }
 });
 
+test('401 preserves the frozen answer through same-account login and commits a replay only once', async ({ browser }) => {
+  const learner = await createLearner('pwa-reauth');
+  const page = await authenticatedPage(browser, learner.email);
+  const db = new Client({ connectionString: process.env.DIRECT_URL });
+  await db.connect();
+  try {
+    const set = await firstPublishedSet(db);
+    expect((await page.request.post('/api/v1/enrollments', { headers: { Origin: origin }, data: { setId: set.id } })).ok()).toBeTruthy();
+    const started = await page.request.post('/api/v1/study-sessions', { headers: { Origin: origin }, data: { setId: set.id, mode: 'WRITTEN' } });
+    expect(started.ok()).toBeTruthy();
+    const { id: sessionId } = await started.json() as { id: string };
+    const { rows: [target] } = await db.query<{ answer: string }>(
+      'SELECT sv.target AS answer FROM app."SessionItem" si JOIN app."SentenceVersion" sv ON sv.id=si."sentenceVersionId" WHERE si."sessionId"=$1 ORDER BY si.position LIMIT 1', [sessionId],
+    );
+    await page.goto(`/study/${sessionId}`);
+    await page.getByLabel('내가 떠올린 영어 문장').fill(target.answer);
+    await page.getByLabel('정답이어도 어려웠어요').check();
+    // Expire the browser's authentication without invoking explicit logout/storage cleanup.
+    await page.context().clearCookies();
+    const unauthorized = page.waitForResponse((response) => response.url().endsWith(`/study-sessions/${sessionId}/answers`));
+    await page.getByRole('button', { name: '제출', exact: true }).click();
+    expect((await unauthorized).status()).toBe(401);
+    await expect(page.getByRole('link', { name: '같은 계정으로 다시 로그인' })).toBeVisible();
+    await expect(page.getByLabel('내가 떠올린 영어 문장')).toBeDisabled();
+    const stored = await page.evaluate(({ ownerId, sessionId }) => JSON.parse(sessionStorage.getItem(`mem-lang-sen:outbox:v1:${ownerId}:${sessionId}`) ?? '[]') as { payload: { eventId: string; answer: string; hard: boolean } }[], { ownerId: learner.id, sessionId });
+    expect(stored).toHaveLength(1);
+    const original = stored[0].payload;
+    expect(original).toMatchObject({ answer: target.answer, hard: true });
+    expect(await reviewEventCount(db, learner.id, original.eventId)).toBe(0);
+
+    await page.getByRole('link', { name: '같은 계정으로 다시 로그인' }).click();
+    await login(page, learner.email);
+    await page.goto(`/study/${sessionId}`);
+    await expect(page.getByText('저장 확인 대기 중인 제출 1개')).toBeVisible();
+    const replayed: unknown[] = [];
+    // Commit the first replay but lose its acknowledgement; a second replay must be idempotent.
+    await page.route('**/api/v1/study-sessions/*/answers', async (route) => {
+      replayed.push(route.request().postDataJSON());
+      await route.fetch();
+      await route.abort('failed');
+    }, { times: 1 });
+    await page.getByRole('button', { name: '대기 제출 다시 전송' }).click();
+    await expect(page.getByRole('alert').filter({ hasText: '저장 확인이 끝나지 않았습니다' })).toBeVisible();
+    await expect.poll(() => reviewEventCount(db, learner.id, original.eventId)).toBe(1);
+    await page.reload();
+    await expect(page.getByText('저장 확인 대기 중인 제출 1개')).toBeVisible();
+    const acknowledged = page.waitForResponse((response) => response.url().endsWith(`/study-sessions/${sessionId}/answers`));
+    await page.getByRole('button', { name: '대기 제출 다시 전송' }).click();
+    const response = await acknowledged;
+    expect(response.ok()).toBeTruthy();
+    expect(response.request().postDataJSON()).toEqual(original);
+    expect(replayed).toEqual([original]);
+    await expect(page.getByText('저장 확인 대기 중인 제출 1개')).toHaveCount(0);
+    expect(await reviewEventCount(db, learner.id, original.eventId)).toBe(1);
+  } finally {
+    await db.end();
+    await page.context().close();
+  }
+});
+
 test.afterAll(async () => {
   const db = new Client({ connectionString: process.env.DIRECT_URL });
   const platform = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SECRET_KEY!, { auth: { persistSession: false } });
