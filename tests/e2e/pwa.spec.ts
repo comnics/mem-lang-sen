@@ -170,7 +170,7 @@ test('401 preserves the frozen answer through same-account login and commits a r
       await route.abort('failed');
     }, { times: 1 });
     await page.getByRole('button', { name: '대기 제출 다시 전송' }).click();
-    await expect(page.getByRole('alert')).toContainText('저장 확인이 끝나지 않았습니다');
+    await expect(page.getByRole('alert').filter({ hasText: '저장 확인이 끝나지 않았습니다' })).toBeVisible();
     await expect.poll(() => reviewEventCount(db, learner.id, original.eventId)).toBe(1);
     await page.reload();
     await expect(page.getByText('저장 확인 대기 중인 제출 1개')).toBeVisible();
