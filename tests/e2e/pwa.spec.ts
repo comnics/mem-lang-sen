@@ -51,8 +51,8 @@ test('push controls handle unsupported and denied permissions without a server s
     await route.fulfill({ status: 500, json: { error: 'unexpected subscription' } });
   });
   await deniedPage.goto('/settings');
-  await deniedPage.getByRole('button', { name: '알림 켜기' }).click();
-  await expect(deniedPage.getByText('알림 권한이 차단되어 있습니다.')).toBeVisible();
+  await deniedPage.getByRole('button', { name: '이 기기 알림 켜기', exact: true }).click();
+  await expect(deniedPage.getByRole('status')).toContainText('알림 권한이 차단되어 있습니다.');
   expect(deniedPostCount).toBe(0);
   await deniedPage.context().close();
 
@@ -72,7 +72,7 @@ test('push controls handle unsupported and denied permissions without a server s
   });
   await unsupportedPage.goto('/settings');
   await expect(unsupportedPage.getByText('이 브라우저에서는 푸시 알림을 쓸 수 없습니다.')).toBeVisible();
-  await expect(unsupportedPage.getByRole('button', { name: '알림 켜기' })).toBeDisabled();
+  await expect(unsupportedPage.getByRole('button', { name: '이 기기 알림 켜기', exact: true })).toBeDisabled();
   expect(unsupportedPostCount).toBe(0);
   await unsupportedPage.context().close();
 });
