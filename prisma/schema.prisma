@@ -346,6 +346,7 @@ model ExposureEvent {
   item SessionItem @relation(fields: [sessionItemId], references: [id], onDelete: Cascade)
 
   @@index([userId, sessionItemId, kind])
+  @@index([userId, createdAt])
   @@schema("app")
 }
 
