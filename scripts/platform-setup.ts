@@ -1,6 +1,7 @@
 import { config } from 'dotenv';
 import { Client } from 'pg';
 import { createClient } from '@supabase/supabase-js';
+import { audioBucketOptions } from '../src/domain/audio-policy';
 import { remoteProjectArgument, validatePlatformEnvironment } from './platform/environment';
 config({ path: '.env.local', quiet: true });
 config({ quiet: true });
@@ -39,7 +40,7 @@ if (databaseOnly) {
 const storage = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SECRET_KEY!, { auth: { persistSession: false } }).storage;
 const { data, error } = await storage.listBuckets();
 if (error) throw error;
-const options = { public: false, fileSizeLimit: 10 * 1024 * 1024, allowedMimeTypes: ['audio/mpeg', 'audio/wav', 'audio/ogg'] };
+const options = audioBucketOptions();
 const result = data.some((bucket) => bucket.id === 'sentence-audio') ? await storage.updateBucket('sentence-audio', options) : await storage.createBucket('sentence-audio', options);
 if (result.error) throw result.error;
 console.log('Restricted app_runtime role and private sentence-audio bucket configured.');
