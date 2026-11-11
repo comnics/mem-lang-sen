@@ -16,6 +16,7 @@ import {
 } from '@/domain/assessment';
 import { addCalendarDays, dateStart, isStudyDate, localDate, nextStudyAt } from '@/domain/scheduling';
 import { completeStudyPlanSchema } from '@/domain/study-plan';
+import { recoveryBudget } from '@/domain/recovery-budget';
 import { db } from '@/server/db';
 import { HttpError } from '@/server/http';
 
@@ -574,8 +575,12 @@ async function assessmentBudget(tx: Database, userId: string, now: Date, timezon
     }),
     tx.reviewEvent.findFirst({ where: { userId }, orderBy: { performedAt: 'desc' }, select: { performedAt: true } }),
   ]);
-  const recovery = storedPlan.recoveryDate === studyDate || Boolean(lastEvent && now.getTime() - lastEvent.performedAt.getTime() >= 7 * 24 * 60 * 60 * 1000);
-  const effectiveMinutes = recovery ? Math.min(plan.dailyMinutes, 3) : plan.dailyMinutes;
+  const { recovery, effectiveMinutes } = recoveryBudget(storedPlan, lastEvent, now, studyDate);
+  // Called only from createAssessmentSession, inside its user lock/transaction.
+  // Roll back this marker with the session if allocation fails.
+  if (recovery && storedPlan.recoveryDate !== studyDate) {
+    await tx.studyPlan.updateMany({ where: { userId }, data: { recoveryDate: studyDate } });
+  }
   const spentSeconds = dayEvents.reduce((sum, event) => sum + event.item.estimatedSeconds, 0);
   const reservedSeconds = pendingSessions.flatMap((session) => session.items).reduce((sum, item) => sum + item.estimatedSeconds, 0);
   const remainingSeconds = Math.max(0, effectiveMinutes * 60 - spentSeconds - reservedSeconds);
