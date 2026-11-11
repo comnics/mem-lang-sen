@@ -19,6 +19,7 @@ import { completeStudyPlanSchema } from '@/domain/study-plan';
 import { recoveryBudget } from '@/domain/recovery-budget';
 import { db } from '@/server/db';
 import { HttpError } from '@/server/http';
+import { ASSESSMENT_EXPOSURE_NOTICE, exposedAssessmentSentences } from './assessment-exposure';
 
 type Database = Prisma.TransactionClient;
 type StudyMode = 'WRITTEN' | 'SPOKEN';
@@ -67,7 +68,7 @@ export type AssessmentDTO = {
     inWindow: boolean | null;
     exposureGapHours: number | null;
     interveningReviews: number | null;
-    status: 'NOT_STARTED' | 'OPEN' | 'ANSWERED' | 'MISSED' | 'UPCOMING';
+    status: 'NOT_STARTED' | 'OPEN' | 'ANSWERED' | 'MISSED' | 'UPCOMING' | 'DEFERRED';
   }[];
 };
 
@@ -154,6 +155,8 @@ export async function getAssessments(userId: string, now = new Date()): Promise<
     const cohorts = await tx.assessmentCohort.findMany({ where: { userId }, select: { startedAt: true } });
     const canStartWeekly = await canCreateWeeklyAssessment(tx, userId);
     const versions = await presentationVersions(tx, userId, assignments);
+    const timezone = await currentTimezone(tx, userId);
+    const exposed = await exposedAssessmentSentences(tx, userId, now, timezone);
     const dtoAssignments = assignments.map((assignment) => {
       const version = versions.get(assignment.id);
       const presentation = assignment.item ?? (assignment.periodKey.endsWith(':APPLICATION') ? version?.applicationQuestions[0] : version);
@@ -173,10 +176,9 @@ export async function getAssessments(userId: string, now = new Date()): Promise<
         inWindow: assignment.inWindow,
         exposureGapHours: assignment.exposureGapHours,
         interveningReviews: assignment.interveningReviews,
-        status: assignmentStatus(assignment, now),
+        status: !assignment.answeredAt && assignment.opensAt <= now && assignment.closesAt >= now && exposed.has(assignment.cohort.sentenceId) ? 'DEFERRED' as const : assignmentStatus(assignment, now),
       };
     });
-    const timezone = await currentTimezone(tx, userId);
     return {
       generatedAt: now.toISOString(),
       localDate: localDate(now, timezone),
@@ -185,7 +187,7 @@ export async function getAssessments(userId: string, now = new Date()): Promise<
       stats: statsFor(assignments, now),
       summary: summaryFor(assignments, now),
       available: dtoAssignments
-        .filter((assignment) => !assignment.answeredAt && new Date(assignment.opensAt) <= now && assignment.prompt)
+        .filter((assignment) => !assignment.answeredAt && !exposed.has(assignment.sentenceId) && new Date(assignment.opensAt) <= now && assignment.prompt)
         .map((assignment) => ({ id: assignment.id, kind: assignment.kind, dueAt: assignment.dueAt, closesAt: assignment.closesAt })),
       recent: dtoAssignments
         .filter((assignment) => assignment.answeredAt || assignment.status === 'MISSED')
@@ -194,7 +196,7 @@ export async function getAssessments(userId: string, now = new Date()): Promise<
         .map((assignment) => ({ id: assignment.id, kind: assignment.kind, result: assignment.result, inWindow: assignment.inWindow, answeredAt: assignment.answeredAt })),
       copy: {
         denominator: '평가율은 사전에 배정된 문장을 분모로 계산하며, 미응시와 기간 밖 응시는 따로 표시합니다.',
-        retention: '7일/30일 유지는 첫 입력 회상 시점 기준의 UTC 경과일 창으로 기록합니다.',
+        retention: `7일/30일 유지는 첫 입력 회상 시점 기준의 UTC 경과일 창으로 기록합니다. ${ASSESSMENT_EXPOSURE_NOTICE}`,
       },
       assignments: dtoAssignments,
     };
@@ -211,7 +213,9 @@ export async function createAssessmentSession(userId: string, input: { kind: Ass
     if (!plan || plan.paused) throw new HttpError(409, '학습 계획을 설정하고 일시정지를 해제해 주세요.');
     if (input.kind === 'WEEKLY') await ensureWeeklyAssignments(tx, userId, now, timezone);
 
-    const active = await activeAssessmentSessionForKind(tx, userId, input.kind, studyDate, timezone);
+    const exposed = await exposedAssessmentSentences(tx, userId, now, timezone);
+    await deferExposedAssignments(tx, userId, studyDate, timezone, exposed);
+    const active = await activeAssessmentSessionForKind(tx, userId, input.kind, studyDate, timezone, exposed);
     if (active && active.items.length) return { id: active.id };
 
     const dueAssignments = await openAssignments(tx, userId, input.kind, now);
@@ -221,9 +225,10 @@ export async function createAssessmentSession(userId: string, input: { kind: Ass
     const existingItems = await reusableActiveItems(tx, userId, studyDate, timezone, dueAssignments.map((assignment) => assignment.cohort.sentenceId));
     const selected = dueAssignments
       .map((assignment) => ({ assignment, version: versions.get(assignment.id) }))
+      .filter((entry) => !exposed.has(entry.assignment.cohort.sentenceId))
       .filter((entry): entry is { assignment: typeof dueAssignments[number]; version: PublishedVersion } => Boolean(entry.version))
       .slice(0, ASSESSMENT_ITEM_LIMIT);
-    if (!selected.length) throw new HttpError(409, '현재 발행 중인 선택 세트에서 평가 문항을 만들 수 없습니다.');
+    if (!selected.length) throw new HttpError(409, dueAssignments.some((assignment) => exposed.has(assignment.cohort.sentenceId)) ? ASSESSMENT_EXPOSURE_NOTICE : '현재 발행 중인 선택 세트에서 평가 문항을 만들 수 없습니다.');
 
     const linkedAssignments: { assignmentId: string; itemId: string; sessionId: string }[] = [];
     let createItems: { entry: typeof selected[number]; form: AssessmentForm; application: PublishedVersion['applicationQuestions'][number] | null }[] = [];
@@ -530,11 +535,34 @@ async function openAssignments(tx: Database, userId: string, kind: AssessmentSes
   });
 }
 
+async function deferExposedAssignments(tx: Database, userId: string, studyDate: string, timezone: string, exposed: Set<string>) {
+  const sessions = await tx.studySession.findMany({
+    where: { userId, status: 'ACTIVE', mode: 'WRITTEN', studyDate, timezone, purpose: { in: ['DAILY', 'ASSESSMENT'] } },
+    include: { items: { where: { reviewEvent: null }, include: { exposures: true } } },
+  });
+  for (const session of sessions) {
+    const contaminated = session.items.filter((item) => item.exposures.length || exposed.has(item.sentenceId));
+    if (!contaminated.length) continue;
+    // Do not return a mixed assessment whose first deferred item blocks all
+    // clean items. Retire its pending allocation atomically and rebuild only
+    // eligible assignments; answered items/results and DAILY practice survive.
+    const deferred = session.purpose === 'ASSESSMENT' ? session.items : contaminated;
+    await tx.assessmentAssignment.updateMany({
+      where: { answeredAt: null, sessionItemId: { in: deferred.map((item) => item.id) } },
+      data: { sessionItemId: null },
+    });
+    if (session.purpose === 'ASSESSMENT') {
+      await tx.studySession.update({ where: { id: session.id }, data: { status: 'ABANDONED' } });
+    }
+  }
+}
+
 async function reusableActiveItems(tx: Database, userId: string, studyDate: string, timezone: string, sentenceIds: string[]) {
   const items = await tx.sessionItem.findMany({
     where: {
       sentenceId: { in: sentenceIds },
       reviewEvent: null,
+      exposures: { none: {} },
       session: { userId, status: 'ACTIVE', mode: 'WRITTEN', studyDate, timezone, purpose: { in: ['DAILY', 'ASSESSMENT'] } },
     },
     orderBy: { createdAt: 'asc' },
@@ -542,13 +570,13 @@ async function reusableActiveItems(tx: Database, userId: string, studyDate: stri
   return new Map(items.map((item) => [`${item.sentenceId}:${item.form}:${item.sentenceVersionId}`, item]));
 }
 
-async function activeAssessmentSessionForKind(tx: Database, userId: string, kind: AssessmentSessionKind, studyDate: string, timezone: string) {
+async function activeAssessmentSessionForKind(tx: Database, userId: string, kind: AssessmentSessionKind, studyDate: string, timezone: string, exposed: Set<string>) {
   const sessions = await tx.studySession.findMany({
     where: { userId, purpose: 'ASSESSMENT', mode: 'WRITTEN', status: 'ACTIVE', studyDate, timezone },
     orderBy: { createdAt: 'asc' },
-    include: { items: { where: { reviewEvent: null }, include: { assessments: true } } },
+    include: { items: { where: { reviewEvent: null }, include: { assessments: true, exposures: true } } },
   });
-  return sessions.find((session) => session.items.some((item) => item.assessments.some((assignment) => (
+  return sessions.find((session) => session.items.every((item) => !item.exposures.length && !exposed.has(item.sentenceId)) && session.items.some((item) => item.assessments.some((assignment) => (
     kind === 'WEEKLY' ? assignment.kind === 'WEEKLY' : assignment.kind === 'RETENTION_7' || assignment.kind === 'RETENTION_30'
   )))) ?? null;
 }

@@ -54,7 +54,7 @@ export function AssessmentsClient({ initial }: { initial: AssessmentDTO }) {
 
   const retentionReady = initial.available.some((item) => item.kind === 'RETENTION_7' || item.kind === 'RETENTION_30');
   const weeklyReady = initial.canStartWeekly;
-  const openAssignments = initial.assignments.filter((assignment) => assignment.status === 'NOT_STARTED' || assignment.status === 'OPEN');
+  const openAssignments = initial.assignments.filter((assignment) => assignment.status === 'NOT_STARTED' || assignment.status === 'OPEN' || assignment.status === 'DEFERRED');
   const followupCount = buckets.retention30.length;
 
   return (
@@ -197,6 +197,7 @@ function resultCopy(result: string | null, inWindow: boolean | null) {
 
 function statusCopy(status: Assignment['status']) {
   if (status === 'OPEN') return '진행 중';
+  if (status === 'DEFERRED') return '힌트·정답 노출로 연기 · 다음 학습일에 다시 시작';
   if (status === 'NOT_STARTED') return '시작 전';
   if (status === 'UPCOMING') return '예정';
   if (status === 'MISSED') return '놓침';

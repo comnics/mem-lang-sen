@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { config } from 'dotenv';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { weeklyWindow } from '@/domain/assessment';
 
 config({ path: '.env.local', quiet: true });
 
@@ -154,6 +155,73 @@ describe('M5 assessments integration', () => {
 
     expect(session.id).toBe(dailyItem.sessionId);
     expect(linked.sessionItemId).toBe(dailyItem.id);
+  });
+
+  it.each([
+    ['RETENTION', 'HINT'], ['RETENTION', 'ANSWER'], ['WEEKLY', 'HINT'], ['WEEKLY', 'ANSWER'],
+  ] as const)('%s defers a DAILY %s exposure and records only a clean next-day answer', async (kind, exposureKind) => {
+    const now = new Date('2026-10-14T09:00:00Z');
+    const tomorrow = new Date('2026-10-15T09:00:00Z');
+    const slug = `exposure-${kind}-${exposureKind}`;
+    const user = await createUser(slug);
+    const { sentence, version } = await createPublishedSet(user.id, slug);
+    await seedWrittenReview(user.id, slug, new Date(now.getTime() - 3_600_000));
+    const daily = await createSessionItem(user.id, sentence.id, version.id, now, 'DAILY');
+    const cohort = await db.assessmentCohort.create({ data: { userId: user.id, sentenceId: sentence.id, selectedAt: now, startedAt: now, baselineVersionId: version.id } });
+    const assignment = await db.assessmentAssignment.create({ data: {
+      cohortId: cohort.id, kind: kind === 'WEEKLY' ? 'WEEKLY' : 'RETENTION_7',
+      periodKey: kind === 'WEEKLY' ? weeklyWindow(now, 'Asia/Seoul').periodKey : slug,
+      opensAt: now, dueAt: tomorrow, closesAt: new Date('2026-10-17T09:00:00Z'),
+    } });
+    await learning.revealSessionItem(user.id, daily.sessionId, { itemId: daily.id, kind: exposureKind }, now);
+    await expect(assessments.createAssessmentSession(user.id, { kind }, now)).rejects.toMatchObject({ status: 409, message: expect.stringContaining('다음 학습일') });
+    expect(await db.assessmentAssignment.findUniqueOrThrow({ where: { id: assignment.id } })).toMatchObject({ sessionItemId: null, answeredAt: null, result: null });
+    const deferred = await assessments.getAssessments(user.id, now);
+    expect(deferred.assignments.find((item) => item.id === assignment.id)).toMatchObject({ status: 'DEFERRED' });
+    expect(deferred.stats).toMatchObject({ answered: 0, incorrect: 0 });
+
+    const session = await assessments.createAssessmentSession(user.id, { kind }, tomorrow);
+    const linked = await db.assessmentAssignment.findUniqueOrThrow({ where: { id: assignment.id } });
+    expect(linked.sessionItemId).not.toBe(daily.id);
+    const result = await learning.answerSessionItem(user.id, session.id, { itemId: linked.sessionItemId!, eventId: randomUUID(), answer: version.target }, tomorrow);
+    expect(result).toMatchObject({ correct: true, result: 'CORRECT' });
+    expect(await db.assessmentAssignment.findUniqueOrThrow({ where: { id: assignment.id } })).toMatchObject({ result: 'CORRECT', inWindow: true });
+    expect((await assessments.getAssessments(user.id, tomorrow)).stats).toMatchObject({ answered: 1, incorrect: 0, inWindowCorrect: 1 });
+  });
+
+  it('rejects exposure in a sibling session after assessment creation without writing a result', async () => {
+    const now = new Date('2026-10-14T09:00:00Z');
+    const user = await createUser('exposure-after-start');
+    const { sentence, version } = await createPublishedSet(user.id, 'exposure-after-start');
+    await seedWrittenReview(user.id, 'exposure-after-start', now);
+    const session = await assessments.createAssessmentSession(user.id, { kind: 'WEEKLY' }, now);
+    const item = await db.sessionItem.findFirstOrThrow({ where: { sessionId: session.id } });
+    const practice = await createSessionItem(user.id, sentence.id, version.id, now, 'PRACTICE');
+    await learning.revealSessionItem(user.id, practice.sessionId, { itemId: practice.id, kind: 'ANSWER' }, now);
+    await expect(learning.answerSessionItem(user.id, session.id, { itemId: item.id, eventId: randomUUID(), answer: version.target }, now)).rejects.toMatchObject({ status: 409 });
+    expect(await db.reviewEvent.count({ where: { sessionItemId: item.id } })).toBe(0);
+    expect(await db.assessmentAssignment.findFirstOrThrow({ where: { sessionItemId: item.id } })).toMatchObject({ answeredAt: null, result: null });
+  });
+
+  it('restarts a mixed exposed assessment with only clean items and one budget reservation', async () => {
+    const now = new Date('2026-10-14T09:00:00Z');
+    const user = await createUser('mixed-exposure', { dailyMinutes: 3 });
+    const dirty = await createPublishedSet(user.id, 'mixed-exposure-dirty');
+    const clean = await createPublishedSet(user.id, 'mixed-exposure-clean');
+    for (const slug of ['mixed-exposure-dirty', 'mixed-exposure-clean']) await seedWrittenReview(user.id, slug, now);
+    const first = await assessments.createAssessmentSession(user.id, { kind: 'WEEKLY' }, now);
+    const practice = await createSessionItem(user.id, dirty.sentence.id, dirty.version.id, now, 'PRACTICE');
+    await learning.revealSessionItem(user.id, practice.sessionId, { itemId: practice.id, kind: 'HINT' }, now);
+    const next = await assessments.createAssessmentSession(user.id, { kind: 'WEEKLY' }, now);
+    expect(next.id).not.toBe(first.id);
+    expect(await db.studySession.findUniqueOrThrow({ where: { id: first.id } })).toMatchObject({ status: 'ABANDONED' });
+    const stored = await db.studySession.findUniqueOrThrow({ where: { id: next.id }, include: { items: true } });
+    expect(stored.items).toHaveLength(1);
+    expect(stored.items[0]).toMatchObject({ sentenceId: clean.sentence.id, estimatedSeconds: 30 });
+    expect(await assessments.createAssessmentSession(user.id, { kind: 'WEEKLY' }, now)).toEqual(next);
+    const pending = await db.sessionItem.findMany({ where: { reviewEvent: null, session: { userId: user.id, status: 'ACTIVE', purpose: 'ASSESSMENT' } } });
+    expect(pending.reduce((sum, item) => sum + item.estimatedSeconds, 0)).toBe(30);
+    await expect(learning.answerSessionItem(user.id, next.id, { itemId: stored.items[0]!.id, eventId: randomUUID(), answer: clean.version.target }, now)).resolves.toMatchObject({ result: 'CORRECT', completed: true });
   });
 
   it('keeps overdue retention assignments available for late attempts', async () => {

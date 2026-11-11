@@ -43,8 +43,9 @@ function fixture(lastPerformedAt: Date | null = new Date(now.getTime() - 7 * 86_
       update: vi.fn(async () => ({})),
     },
     sessionItem: { findMany: vi.fn(async () => []) },
+    exposureEvent: { findMany: vi.fn(async () => []) },
     studySession: {
-      findMany: vi.fn(async ({ where }: { where: { studyDate: string; purpose: string | object } }) => sessions.filter((session) => session.status === 'ACTIVE' && session.studyDate === where.studyDate && (typeof where.purpose !== 'string' || session.purpose === where.purpose)).map((session) => ({ ...session, items: session.items.map((item) => ({ ...item, assessments: [assignments[0]] })) }))),
+      findMany: vi.fn(async ({ where }: { where: { studyDate: string; purpose: string | object } }) => sessions.filter((session) => session.status === 'ACTIVE' && session.studyDate === where.studyDate && (typeof where.purpose !== 'string' || session.purpose === where.purpose)).map((session) => ({ ...session, items: session.items.map((item) => ({ ...item, exposures: [], assessments: [assignments[0]] })) }))),
       updateMany: vi.fn(async () => ({ count: 0 })),
       create: vi.fn(async ({ data }: { data: { purpose: string; mode: string; studyDate: string; timezone: string; items: { create: { estimatedSeconds: number; sentenceId: string }[] } } }) => {
         const session = { ...data, id: `session${sessions.length}`, status: 'ACTIVE', items: data.items.create.map((item, i) => ({ ...item, id: `item${sessions.length}:${i}` })) };

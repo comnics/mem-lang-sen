@@ -9,6 +9,7 @@ import { HttpError } from '@/server/http';
 import { signedAudioUrl } from './content';
 import { isDailySessionUsable } from './daily-session';
 import { registerCohort, recordAssessmentAnswer } from './assessments';
+import { ASSESSMENT_EXPOSURE_NOTICE, exposedAssessmentSentences } from './assessment-exposure';
 
 export { getStudyPlan, updateStudyPlan } from './scheduling';
 
@@ -307,6 +308,12 @@ export async function answerSessionItem(
       if (item.reviewEvent) throw new HttpError(409, '이미 제출된 문항입니다.');
       if (item.applicationQuestion && item.applicationQuestion.status !== 'PUBLISHED') throw new HttpError(409, '현재 사용할 수 없는 응용 문항입니다.');
       if (item.assessments.some((assignment) => assignment.opensAt > performedAt)) throw new HttpError(409, '아직 평가 기간이 시작되지 않았습니다.');
+      if (item.assessments.length) {
+        const exposed = await exposedAssessmentSentences(tx, userId, performedAt, await currentTimezone(tx, userId));
+        // Recheck under the same user lock as reveals, including legacy linked
+        // items and exposures in another session after this assessment began.
+        if (item.exposures.length || exposed.has(item.sentenceId)) throw new HttpError(409, ASSESSMENT_EXPOSURE_NOTICE);
+      }
 
       const previousState = await tx.userSentenceState.findUnique({
         where: { userId_sentenceId_mode: { userId, sentenceId: item.sentenceId, mode: item.session.mode } },
