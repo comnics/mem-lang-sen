@@ -7,6 +7,7 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  experimental: { agentUpgrade: 'security' },
   allowedDevOrigins: ['127.0.0.1', '[::1]'],
   poweredByHeader: false,
   serverExternalPackages: ['pg'],
