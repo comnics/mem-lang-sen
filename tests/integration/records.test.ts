@@ -62,6 +62,21 @@ describe('M5 records integration', () => {
     await expect(records.createContentReport(user.id, { sentenceVersionId: version.id, reason: 'OTHER', detail: 'looks good' })).resolves.toMatchObject({ status: 'OPEN' });
   });
 
+  it.each(['TYPO', 'ANSWER', 'AUDIO', 'MEANING', 'OTHER'] as const)('persists %s reports and returns the same reason to administrators', async (reason) => {
+    const user = await createUser(`report-${reason}`);
+    const { version } = await createPublishedSet(user.id, `report-${reason}`);
+    const report = await records.createContentReport(user.id, {
+      sentenceVersionId: version.id, reason, detail: `  ${reason} details  `,
+    });
+    expect(await db.contentReport.findUniqueOrThrow({ where: { id: report.id } })).toMatchObject({
+      userId: user.id, sentenceVersionId: version.id, reason, detail: `${reason} details`, status: 'OPEN',
+    });
+    const adminReports = await records.getAdminReports();
+    expect(adminReports.find((row) => row.id === report.id)).toMatchObject({
+      reason, detail: `${reason} details`, sentenceVersion: { id: version.id }, user: { email: user.email },
+    });
+  });
+
   it('allows reports only for the exact published or practiced sentence version', async () => {
     const user = await createUser('report-version');
     const { sentence } = await createPublishedSet(user.id, 'report-version');
