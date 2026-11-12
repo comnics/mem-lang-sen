@@ -33,6 +33,8 @@ for (const outcome of ['success', 'http-error', 'network-error']) {
     await mount(page, 'records');
     await page.getByLabel('개인 메모').fill('보존할 메모');
     await page.getByLabel('문장 신고').fill('음원 문제');
+    await expect(page.getByRole('combobox', { name: '신고 유형' })).toHaveValue('OTHER');
+    await page.getByRole('combobox', { name: '신고 유형' }).selectOption('AUDIO');
     for (const action of ['save', 'report']) {
       const path = action === 'save' ? 'sentence-preferences' : 'reports';
       // Register without awaiting the response promise until after clicking.
@@ -48,7 +50,8 @@ for (const outcome of ['success', 'http-error', 'network-error']) {
       expect(requests).toBe(1);
       expect(captured.request().method()).toBe(action === 'save' ? 'PATCH' : 'POST');
       expect(captured.request().postDataJSON()).toMatchObject(action === 'save'
-        ? { note: '보존할 메모', sentenceId: 's1' } : { detail: '음원 문제', sentenceVersionId: 'v1' });
+        ? { note: '보존할 메모', sentenceId: 's1' } : { detail: '음원 문제', sentenceVersionId: 'v1', reason: 'AUDIO' });
+      if (action === 'report') await expect(page.getByRole('combobox', { name: '신고 유형' })).toBeDisabled();
       if (outcome === 'network-error') await captured.abort();
       else await captured.fulfill({ status: outcome === 'success' ? 200 : 500,
         json: outcome === 'success' ? {} : { error: '테스트 오류' } });
@@ -57,7 +60,44 @@ for (const outcome of ['success', 'http-error', 'network-error']) {
       await expect(page.getByLabel('문장 신고')).toHaveValue(
         action === 'report' && outcome === 'success' ? '' : '음원 문제');
       await expect(page.getByRole('button', { name: '저장', exact: true })).toBeEnabled();
+      await expect(page.getByRole('combobox', { name: '신고 유형' })).toHaveValue('AUDIO');
+      await expect(page.getByRole('combobox', { name: '신고 유형' })).toBeEnabled();
+      if (action === 'report' && outcome !== 'success') {
+        captured = undefined as unknown as Route;
+        await page.getByRole('button', { name: '신고', exact: true }).click();
+        await expect.poll(() => Boolean(captured)).toBe(true);
+        expect(captured.request().postDataJSON()).toEqual({ sentenceVersionId: 'v1', reason: 'AUDIO', detail: '음원 문제' });
+        await captured.fulfill({ json: {} });
+        await expect(page.getByLabel('문장 신고')).toHaveValue('');
+        await expect(page.getByRole('combobox', { name: '신고 유형' })).toHaveValue('AUDIO');
+      }
     }
+  });
+}
+
+for (const reason of ['TYPO', 'ANSWER', 'AUDIO', 'MEANING', 'OTHER']) {
+  test('records submits ' + reason + ' with keyboard after reason selection', async ({ page }) => {
+    await mount(page, 'records');
+    const select = page.getByRole('combobox', { name: '신고 유형' });
+    await expect(select).toHaveValue('OTHER');
+    await select.selectOption(reason);
+    await select.focus();
+    await page.keyboard.press('Tab');
+    await expect(select).toHaveValue(reason);
+    await expect(page.getByLabel('문장 신고')).toBeFocused();
+    await page.keyboard.type('키보드 신고');
+    let payload: unknown;
+    await page.route('**/api/v1/reports', route => {
+      payload = route.request().postDataJSON();
+      return route.fulfill({ json: {} });
+    });
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('button', { name: '신고', exact: true })).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('status')).toHaveText('신고를 보냈습니다.');
+    expect(payload).toEqual({ sentenceVersionId: 'v1', reason, detail: '키보드 신고' });
+    await expect(select).toHaveValue(reason);
+    await expect(page.getByLabel('문장 신고')).toHaveValue('');
   });
 }
 
