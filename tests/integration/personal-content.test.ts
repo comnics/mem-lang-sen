@@ -13,6 +13,7 @@ let records:typeof import('@/server/services/records');
 let scheduling:typeof import('@/server/services/scheduling');
 let a:string,b:string,admin:string;
 const extras:string[]=[];
+const publicSets:string[]=[];
 const value=(n=1)=>({prompt:`한국어 질문 ${n}`,target:`Answer ${n}`,level:'A1' as const});
 async function fixture(){const set=await personal.createPersonalSet(a,{title:'개인 세트'});await personal.addPersonalSentences(a,set.id,{expectedRevision:1,sentences:[value()]});const detail=await personal.getPersonalSet(a,set.id);return {set:detail,version:detail.sentences[0].sentenceVersion};}
 async function preview(setId:string,rows=[personalRowSchema.parse({row:1,...value(2)})]){return imports.createPersonalPreview(a,setId,'txt:TSV',rows);}
@@ -22,7 +23,7 @@ describe('personal content / imports / existing learning integration',()=>{
  beforeAll(async()=>{const url=process.env.DATABASE_URL;if(!url||!['localhost','127.0.0.1'].includes(new URL(url).hostname))throw new Error('A disposable LOCAL database is required.');({db}=await import('@/server/db'));personal=await import('@/server/services/personal-content');imports=await import('@/server/services/personal-imports');learning=await import('@/server/services/learning');content=await import('@/server/services/content');records=await import('@/server/services/records');scheduling=await import('@/server/services/scheduling');});
  beforeEach(async()=>{a=randomUUID();b=randomUUID();admin=randomUUID();await db.appUser.createMany({data:[a,b,admin].map(id=>({id,email:`${id}@personal.integration.test`,role:id===admin?'ADMIN':'USER'}))});});
  afterEach(async()=>{
-  const owners=[a,b,admin];const sets=await db.studySet.findMany({where:{ownerId:{in:owners}},select:{id:true}});const sentences=await db.sentence.findMany({where:{ownerId:{in:owners}},select:{id:true}});const sentenceIds=[...sentences.map(s=>s.id),...extras.splice(0)];
+  const owners=[a,b,admin];const sets=await db.studySet.findMany({where:{OR:[{ownerId:{in:owners}},{id:{in:publicSets.splice(0)}}]},select:{id:true}});const sentences=await db.sentence.findMany({where:{ownerId:{in:owners}},select:{id:true}});const sentenceIds=[...sentences.map(s=>s.id),...extras.splice(0)];
   // Teardown only: assertions above inspect preserved history before deleting test fixtures.
   await db.personalSentenceImport.deleteMany({where:{ownerId:{in:owners}}});
   await db.studySession.deleteMany({where:{userId:{in:owners}}});
@@ -30,12 +31,46 @@ describe('personal content / imports / existing learning integration',()=>{
   await db.userSentenceState.deleteMany({where:{userId:{in:owners}}});
   await db.userSentencePreference.deleteMany({where:{userId:{in:owners}}});
   await db.setSentence.deleteMany({where:{setId:{in:sets.map(s=>s.id)}}});
-  await db.studySet.deleteMany({where:{ownerId:{in:owners}}});
+  await db.studySet.deleteMany({where:{id:{in:sets.map(s=>s.id)}}});
   await db.sentenceVersion.deleteMany({where:{sentenceId:{in:sentenceIds}}});
   await db.sentence.deleteMany({where:{id:{in:sentenceIds}}});
   await db.appUser.deleteMany({where:{id:{in:owners}}});
  });
  afterAll(async()=>{if(db)await db.$disconnect();});
+ it.each([
+  {scope:'PERSONAL',mode:'WRITTEN'}, {scope:'PERSONAL',mode:'SPOKEN'},
+  {scope:'PUBLIC',mode:'WRITTEN'}, {scope:'PUBLIC',mode:'SPOKEN'},
+ ] as const)('keeps hidden $scope sentences available throughout $mode practice but out of today',async({scope,mode})=>{
+  let setId:string;
+  if(scope==='PERSONAL'){
+   const set=await personal.createPersonalSet(a,{title:'숨김 회귀'});
+   await personal.addPersonalSentences(a,set.id,{expectedRevision:1,sentences:[value(1),value(2)]});setId=set.id;
+  }else{
+   const set=await db.studySet.create({data:{title:'Public hidden regression',description:'',category:'SITUATION',level:'A1',status:'PUBLISHED'}});setId=set.id;publicSets.push(setId);
+   for(let n=1;n<=2;n++){
+    const sentence=await db.sentence.create({data:{}});extras.push(sentence.id);
+    const version=await db.sentenceVersion.create({data:{sentenceId:sentence.id,versionNumber:1,...value(n),meaning:'',hint:'',explanation:'',acceptedAnswers:[value(n).target],status:'PUBLISHED'}});
+    await db.setSentence.create({data:{setId,sentenceVersionId:version.id,order:n}});
+   }
+  }
+  await learning.enrollSet(a,setId);
+  await scheduling.updateStudyPlan(a,{displayName:'숨김 검증',dailyMinutes:5,timezone:'UTC',weekdays:[0,1,2,3,4,5,6],localTime:'00:00'});
+  const members=await db.setSentence.findMany({where:{setId},orderBy:{order:'asc'},include:{sentenceVersion:true}});
+  const hiddenId=members[0].sentenceVersion.sentenceId;
+  await db.userSentencePreference.upsert({where:{userId_sentenceId:{userId:a,sentenceId:hiddenId}},create:{userId:a,sentenceId:hiddenId,hidden:true},update:{hidden:true}});
+  const queue=await scheduling.getTodayQueue(a);
+  expect(queue.items.some(item=>item.sentenceId===hiddenId)).toBe(false);
+  expect(queue.items.some(item=>item.sentenceId===members[1].sentenceVersion.sentenceId)).toBe(true);
+  const session=await learning.createStudySession(a,{setId,mode});
+  const dto=await learning.getSession(a,session.id);
+  expect(dto.status).toBe('ACTIVE');expect(dto.items).toHaveLength(2);
+  for(const [index,item] of dto.items.entries()){
+   if(mode==='SPOKEN')expect(await learning.revealSessionItem(a,session.id,{itemId:item.id,kind:'ANSWER'})).toMatchObject({text:value(index+1).target});
+   const answer=await learning.answerSessionItem(a,session.id,{itemId:item.id,eventId:randomUUID(),...(mode==='WRITTEN'?{answer:value(index+1).target}:{selfRating:'GOOD' as const})});
+   expect(answer.result).toBe(mode==='WRITTEN'?'CORRECT':'SELF_REPORTED');expect(answer.completed).toBe(index===1);
+  }
+  expect((await learning.getSession(a,session.id)).status).toBe('COMPLETED');
+ });
  it('defaults existing/public content to PUBLIC/null and enforces owner CHECK constraints',async()=>{const sentence=await db.sentence.create({data:{}});extras.push(sentence.id);expect(sentence).toMatchObject({scope:'PUBLIC',ownerId:null});await expect(db.sentence.create({data:{scope:'PERSONAL'}})).rejects.toThrow();await expect(db.studySet.create({data:{title:'invalid',description:'',category:'SITUATION',level:'A1',scope:'PERSONAL',status:'PUBLISHED',ownerId:a}})).rejects.toThrow();});
  it('keeps A content invisible to B, ADMIN, public catalogs and administrative authoring paths',async()=>{const {set,version}=await fixture();expect(await personal.listPersonalSets(b)).toEqual([]);expect(await personal.listPersonalSets(admin)).toEqual([]);for(const owner of [b,admin]){await expect(personal.getPersonalSet(owner,set.id)).rejects.toMatchObject({status:404});await expect(personal.exposePersonalSet(owner,set.id)).rejects.toMatchObject({status:404});await expect(personal.updatePersonalSet(owner,set.id,{expectedRevision:set.revision,title:'hijack'})).rejects.toMatchObject({status:404});await expect(personal.editPersonalSentence(owner,version.sentenceId,{expectedVersionId:version.id,expectedRevision:set.revision,action:'ARCHIVE'})).rejects.toMatchObject({status:404});await expect(learning.enrollSet(owner,set.id)).rejects.toMatchObject({status:404});}
   expect(await content.adminListSets()).not.toEqual(expect.arrayContaining([expect.objectContaining({id:set.id})]));expect(await content.adminListSentences()).not.toEqual(expect.arrayContaining([expect.objectContaining({id:version.id})]));expect(await content.listSets(b)).not.toEqual(expect.arrayContaining([expect.objectContaining({id:set.id})]));await expect(content.getSet(set.id,a)).rejects.toMatchObject({status:404});await expect(content.adminCloneSet(set.id)).rejects.toMatchObject({status:404});await expect(content.adminReviewSet(set.id)).rejects.toMatchObject({status:404});await expect(content.adminPublishSet(set.id)).rejects.toMatchObject({status:404});
