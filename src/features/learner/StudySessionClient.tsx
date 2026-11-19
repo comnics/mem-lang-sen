@@ -15,6 +15,7 @@ type StudyItem = {
   answered: boolean;
   form?: string;
   assessmentLocked?: boolean;
+  source?: 'PUBLIC' | 'PERSONAL';
 };
 
 type Session = {
@@ -314,7 +315,7 @@ export function StudySessionClient({ session }: { session: Session }) {
   if (session.status === 'ABANDONED') {
     return (
       <section className="empty-state">
-        <strong>만료된 오늘 학습입니다.</strong>
+        <strong>만료된 학습입니다. 문장 편집·보관 또는 일정 변경 후 새로 시작해 주세요.</strong>
         <p>새 오늘 학습 큐가 만들어져 이 세션은 더 이상 답안을 받지 않습니다.</p>
         {renderOutboxNotice()}
         {outboxWarning ? <p className="notice notice-error" role="alert">{outboxWarning}</p> : null}
@@ -341,6 +342,7 @@ export function StudySessionClient({ session }: { session: Session }) {
 
       <article className="card-quiet stack">
         <span className="badge badge-accent">{item.position}번째 문장</span>
+        {item.source === 'PERSONAL' ? <p className="badge">개인 문장 · 음원 없이 텍스트로 비교합니다.</p> : null}
         <p ref={promptRef} tabIndex={-1} className="recall-prompt" lang="ko">{item.prompt}</p>
         <p className="muted">{item.meaning}</p>
       </article>

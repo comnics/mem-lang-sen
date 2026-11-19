@@ -37,6 +37,7 @@ export type TodayQueueDTO = {
     prompt: string;
     meaning: string;
     setTitle: string;
+    source?: 'PUBLIC' | 'PERSONAL';
     kind: 'REVIEW' | 'NEW';
     dueAt: string | null;
     scheduledAt: string;

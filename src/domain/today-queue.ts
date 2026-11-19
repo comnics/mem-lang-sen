@@ -3,7 +3,7 @@ import { addCalendarDays, dateStart, isStudyDate, localDate, nextStudyAt } from 
 import { recoveryBudget } from '@/domain/recovery-budget';
 
 export type TodayQueueCandidate = {
-  sentenceId: string; versionId: string; prompt: string; meaning: string; setTitle: string;
+  sentenceId: string; versionId: string; prompt: string; meaning: string; setTitle: string; source?: 'PUBLIC' | 'PERSONAL';
   kind: 'NEW' | 'REVIEW'; dueAt: Date | null; scheduledAt: Date | null; estimatedSeconds: number;
 };
 
@@ -13,7 +13,7 @@ export type TodayQueueInput = {
   plan: StudyPlanValue & { recoveryDate?: string | null };
   mode: StudyMode;
   now: Date;
-  enrollments: { set: { title: string; sentences: { sentenceVersion: { id: string; sentenceId: string; prompt: string; meaning: string } }[] } }[];
+  enrollments: { set: { title: string; scope?: 'PUBLIC' | 'PERSONAL'; sentences: { sentenceVersion: { id: string; sentenceId: string; prompt: string; meaning: string } }[] } }[];
   states: { sentenceId: string; dueAt: Date | null; lastPracticedAt: Date }[];
   preferences: { sentenceId: string; hidden: boolean; lastExposedAt: Date | null }[];
   dayEvents: { item: { estimatedSeconds: number } }[];
@@ -52,7 +52,7 @@ export function calculateTodayQueue(input: TodayQueueInput): TodayQueueResult {
       const dueAt = state ? state.dueAt ?? new Date(state.lastPracticedAt.getTime() + DAY) : null;
       const earliest = dueAt && mode === 'WRITTEN' && exposure ? new Date(Math.max(dueAt.getTime(), exposure.getTime() + DAY)) : dueAt;
       unique.set(version.sentenceId, {
-        sentenceId: version.sentenceId, versionId: version.id, prompt: version.prompt, meaning: version.meaning, setTitle: enrollment.set.title,
+        sentenceId: version.sentenceId, versionId: version.id, prompt: version.prompt, meaning: version.meaning, setTitle: enrollment.set.title, source: enrollment.set.scope,
         kind: state ? 'REVIEW' : 'NEW', dueAt, scheduledAt: earliest ? nextStudyAt(earliest, calendarRule) : slot,
         estimatedSeconds: state ? 30 : 60,
       });
@@ -96,7 +96,7 @@ export function calculateTodayQueue(input: TodayQueueInput): TodayQueueResult {
     newCount: selected.filter((item) => item.kind === 'NEW').length,
     deferredCount: Math.max(0, reviews.length - selected.filter((item) => item.kind === 'REVIEW').length),
     activeSessionId: plan.paused ? null : active?.id ?? null,
-    items: selected.map((item) => ({ sentenceId: item.sentenceId, prompt: item.prompt, meaning: item.meaning, setTitle: item.setTitle, kind: item.kind, dueAt: item.dueAt?.toISOString() ?? null, scheduledAt: item.scheduledAt!.toISOString() })),
+    items: selected.map((item) => ({ sentenceId: item.sentenceId, prompt: item.prompt, meaning: item.meaning, setTitle: item.setTitle, source: item.source, kind: item.kind, dueAt: item.dueAt?.toISOString() ?? null, scheduledAt: item.scheduledAt!.toISOString() })),
     calendar,
   };
   return { dto, selected, invalidSessionIds };

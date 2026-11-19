@@ -16,5 +16,6 @@ export async function exposedAssessmentSentences(tx: Prisma.TransactionClient, u
     },
     select: { item: { select: { sentenceId: true } } },
   });
-  return new Set(rows.map((row) => row.item.sentenceId));
+  const authored = await tx.userSentencePreference.findMany({ where: { userId, sentence: { scope: 'PERSONAL', ownerId: userId }, lastExposedAt: { gte: dateStart(studyDate, timezone), lt: dateStart(addCalendarDays(studyDate, 1), timezone) } }, select: { sentenceId: true } });
+  return new Set([...rows.map((row) => row.item.sentenceId), ...authored.map((row) => row.sentenceId)]);
 }

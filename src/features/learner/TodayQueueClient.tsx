@@ -121,6 +121,7 @@ export function TodayQueueClient({ initialQueue }: { initialQueue: TodayQueueDTO
                 <span className={item.kind === 'REVIEW' ? 'badge badge-accent' : 'badge'}>{item.kind === 'REVIEW' ? '복습' : '새 문장'}</span>
                 <span className="muted">{formatDate(item.scheduledAt, queue.timezone)}</span>
               </div>
+              {item.source === 'PERSONAL' ? <span className="badge">개인 문장 · 무음원</span> : null}
               <strong>{item.prompt}</strong>
               <p className="muted">{item.meaning}</p>
               {item.dueAt ? <span className="muted">예정 {formatDate(item.dueAt, queue.timezone)}</span> : null}

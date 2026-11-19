@@ -5,6 +5,7 @@ import { Flag, Save } from 'lucide-react';
 
 type SentenceRecord = {
   sentenceId: string;
+  source?: 'PUBLIC' | 'PERSONAL';
   sentenceVersionId: string | null;
   note: string;
   hidden: boolean;
@@ -72,6 +73,7 @@ export function SentenceRecordsClient({ sentence }: { sentence: SentenceRecord }
       <div className="button-row">
         <button className="button-secondary" type="button" onClick={() => perform('save')} disabled={Boolean(pending)}><Save size={18} aria-hidden="true" />{pending === 'save' ? '저장 중' : '저장'}</button>
       </div>
+      {sentence.source !== 'PERSONAL' ? <>
       <label className="field">
         신고 유형
         <select className="input" value={reportReason} disabled={pending === 'report'} onChange={(event) => setReportReason(event.target.value as ReportReason)}>
@@ -83,6 +85,7 @@ export function SentenceRecordsClient({ sentence }: { sentence: SentenceRecord }
         <input className="input" disabled={pending === 'report'} value={reportDetail} onChange={(event) => setReportDetail(event.target.value)} placeholder="오탈자, 정답, 음원 문제를 적어 주세요." />
       </label>
       <button className="button-ghost" type="button" onClick={() => perform('report')} disabled={Boolean(pending) || !sentence.sentenceVersionId || !reportDetail.trim()}><Flag size={18} aria-hidden="true" />{pending === 'report' ? '신고 중' : '신고'}</button>
+      </> : <p className="muted">개인 문장은 직접 만든 문장 화면에서 수정할 수 있습니다. 공용 관리자 신고로 전송하지 않습니다.</p>}
       {message ? <p className={failed ? 'notice notice-error' : 'notice notice-success'} role={failed ? 'alert' : 'status'}>{message}</p> : null}
     </div>
   );

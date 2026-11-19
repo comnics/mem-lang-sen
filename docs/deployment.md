@@ -33,6 +33,16 @@ pnpm platform:setup
 
 `DIRECT_URL`은 migration 작업 환경에만 보관합니다. Vercel 일반 런타임에는 넣지 않습니다. 빌드는 migration 없이 Prisma generate와 next build만 수행합니다. 예시 계정이 생기는 `local:setup`은 운영에서 실행하지 않습니다. 콘텐츠만 반영하는 원격 시드는 아래 절차로 실행합니다.
 
+## 개인 문장 migration / 배포 순서
+
+`20261119000000_personal_scope`(enum)와 `20261119000100_personal_content`(열/테이블/제약/트리거)를 순서대로 적용합니다. 기존 migration을 수정하지 않습니다. 기존 Sentence/StudySet은 PUBLIC/null 기본값으로 보존하며 개인 scope의 owner와 상태·membership 경계는 DB 제약으로도 확인합니다. 새 테이블 DML 권한은 기존 플랫폼 설정의 default privileges와 일치하는지 격리 환경에서 확인하세요.
+
+개인 쓰기를 사용하기 전에 **모든 공용 reader/admin guard가 포함된 새 앱**을 배포해야 합니다. 개인 데이터를 가진 DB에 구버전 앱을 연결하는 롤백은 금지합니다. Node24 worker_threads와 외부 sax 패키지를 포함할 수 있는 서버 런타임이 필요하며 Edge에서는 처리하지 않습니다. 프록시 요청 한도를 파일 2MiB + multipart 여유 64KiB 이상으로 맞추고 서버 실제 스트림 한도는 유지합니다. 압축 해제·worker 메모리/동시성·5초 종료는 최종 배포 환경에서 별도 확인합니다. 전역 Origin 검증은 재도입하지 않고 신규 개인 쓰기만 세션 바인딩 CSRF custom header를 사용합니다.
+
+미리보기는 접근 TTL30분, 완료 멱등 메타데이터 보존7일입니다. 현재는 요청 시 bounded 정리이며 엄격한 물리 파기 시각의 SLA는 아닙니다. 필요하면 별도 승인된 운영 작업으로 만료 행의 normalizedRows/errors만 비우고 7일 지난 메타데이터만 정리하세요. 활성 문장/버전/학습 세션/답안/평가 assignment를 함께 삭제하지 않습니다. [상세 안내](personal-sentences.md).
+
+이 변경은 아직 실행 검증되지 않았습니다. 기존 배포 절차를 자동 실행하지 않았으며 최종 격리 캠페인과 별도 배포 승인이 필요합니다.
+
 ## 3. Auth
 
 Supabase Auth에서 이메일/비밀번호 로그인·이메일 확인을 켜고 최소 비밀번호 길이를 10으로 설정합니다. Site URL은 대표 서비스 주소로 설정하고, redirect allowlist는 `/auth/callback` 및 `/auth/callback?next=/reset-password`의 정확한 서비스 URL을 등록합니다. 운영 allowlist에 광범위한 wildcard를 사용하지 않습니다.

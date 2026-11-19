@@ -1,0 +1,2 @@
+영수증을 요청한다	Can I get a receipt?	매장에서 요청하는 상황
+물을 부탁한다	Could I have some water?	정중한 부탁

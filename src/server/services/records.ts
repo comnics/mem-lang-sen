@@ -1,4 +1,5 @@
 import 'server-only';
+import { studyableSetWhere } from './content-access';
 import { z } from 'zod';
 import { Prisma } from '@/generated/prisma/client';
 import { localDate } from '@/domain/scheduling';
@@ -50,7 +51,7 @@ export async function updateSentencePreference(userId: string, input: z.infer<ty
 
 export async function createContentReport(userId: string, input: z.infer<typeof reportInputSchema>) {
   const body = reportInputSchema.parse(input);
-  const version = await db.sentenceVersion.findUnique({ where: { id: body.sentenceVersionId }, select: { id: true, sentenceId: true } });
+  const version = await db.sentenceVersion.findFirst({ where: { id: body.sentenceVersionId, sentence: { scope: 'PUBLIC' } }, select: { id: true, sentenceId: true } });
   if (!version) throw new HttpError(404, '문장을 찾을 수 없습니다.');
   await assertVersionAccessible(userId, version.id);
   return db.contentReport.create({
@@ -138,6 +139,7 @@ export async function getCalendarMonth(userId: string, month: string) {
 
 export async function getAdminReports() {
   return db.contentReport.findMany({
+    where: { sentenceVersion: { sentence: { scope: 'PUBLIC' } } },
     orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
     include: { sentenceVersion: true, user: { select: { email: true, displayName: true } } },
     take: 100,
@@ -146,20 +148,20 @@ export async function getAdminReports() {
 
 export async function updateAdminReport(id: string, input: { status: 'OPEN' | 'RESOLVED' | 'DISMISSED'; resolution?: string }) {
   return db.contentReport.update({
-    where: { id },
+    where: { id, sentenceVersion: { sentence: { scope: 'PUBLIC' } } },
     data: { status: input.status, resolution: input.resolution ?? '' },
   });
 }
 
 export async function getQualityMetrics() {
   const [events, reports, applicationQuestions, assignments, reportTotal, recallTotal, applicationTotal] = await Promise.all([
-    db.reviewEvent.groupBy({ by: ['form', 'result'], _count: { _all: true } }),
-    db.contentReport.groupBy({ by: ['status'], _count: { _all: true } }),
-    db.applicationQuestion.groupBy({ by: ['status'], _count: { _all: true } }),
-    db.assessmentAssignment.groupBy({ by: ['kind', 'result'], _count: { _all: true } }),
-    db.contentReport.count(),
-    db.reviewEvent.count({ where: { form: 'RECALL' } }),
-    db.reviewEvent.count({ where: { form: 'APPLICATION' } }),
+    db.reviewEvent.groupBy({ where: { item: { sentenceVersion: { sentence: { scope: 'PUBLIC' } } } }, by: ['form', 'result'], _count: { _all: true } }),
+    db.contentReport.groupBy({ where: { sentenceVersion: { sentence: { scope: 'PUBLIC' } } }, by: ['status'], _count: { _all: true } }),
+    db.applicationQuestion.groupBy({ where: { sentenceVersion: { sentence: { scope: 'PUBLIC' } } }, by: ['status'], _count: { _all: true } }),
+    db.assessmentAssignment.groupBy({ where: { cohort: { sentence: { scope: 'PUBLIC' } } }, by: ['kind', 'result'], _count: { _all: true } }),
+    db.contentReport.count({ where: { sentenceVersion: { sentence: { scope: 'PUBLIC' } } } }),
+    db.reviewEvent.count({ where: { form: 'RECALL', item: { sentenceVersion: { sentence: { scope: 'PUBLIC' } } } } }),
+    db.reviewEvent.count({ where: { form: 'APPLICATION', item: { sentenceVersion: { sentence: { scope: 'PUBLIC' } } } } }),
   ]);
   return {
     denominators: { reports: reportTotal, recall: recallTotal, application: applicationTotal },
@@ -173,7 +175,7 @@ export async function getQualityMetrics() {
 async function assertSentenceAccessible(tx: Prisma.TransactionClient, userId: string, sentenceId: string) {
   const [enrolled, practiced] = await Promise.all([
     tx.setSentence.count({
-      where: { sentenceVersion: { sentenceId }, set: { status: 'PUBLISHED', enrollments: { some: { userId } } } },
+      where: { sentenceVersion: { sentenceId }, set: { ...studyableSetWhere(userId), enrollments: { some: { userId } } } },
     }),
     tx.reviewEvent.count({ where: { userId, item: { sentenceId } } }),
   ]);
@@ -185,7 +187,7 @@ async function assertVersionAccessible(userId: string, sentenceVersionId: string
     db.setSentence.count({
       where: {
         sentenceVersionId,
-        set: { status: 'PUBLISHED', enrollments: { some: { userId } } },
+        set: { ...studyableSetWhere(userId), enrollments: { some: { userId } } },
       },
     }),
     db.reviewEvent.count({ where: { userId, item: { sentenceVersionId } } }),

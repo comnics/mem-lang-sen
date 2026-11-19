@@ -15,6 +15,7 @@ export const applicationQuestionInputSchema = z.object({
 
 export async function adminListApplicationQuestions() {
   return db.applicationQuestion.findMany({
+    where: { sentenceVersion: { sentence: { scope: 'PUBLIC' } } },
     orderBy: [{ updatedAt: 'desc' }],
     include: { sentenceVersion: { select: { prompt: true, target: true } } },
   });
@@ -48,7 +49,7 @@ export async function adminUpdateApplicationQuestion(id: string, input: z.infer<
 }
 
 async function requireSentenceVersion(id: string, tx: Prisma.TransactionClient | typeof db = db) {
-  const version = await tx.sentenceVersion.findUnique({ where: { id }, select: { id: true } });
+  const version = await tx.sentenceVersion.findFirst({ where: { id, sentence: { scope: 'PUBLIC' } }, select: { id: true } });
   if (!version) throw new HttpError(400, '존재하지 않는 문장 버전입니다.');
 }
 
@@ -56,7 +57,7 @@ async function lockApplicationQuestion(tx: Prisma.TransactionClient, id: string)
   const rows = await tx.$queryRaw<{ id: string; status: 'DRAFT' | 'REVIEW' | 'PUBLISHED' | 'ARCHIVED' }[]>`
     SELECT id, status
     FROM app."ApplicationQuestion"
-    WHERE id = ${id}
+    WHERE id = ${id} AND EXISTS (SELECT 1 FROM app."SentenceVersion" v JOIN app."Sentence" s ON s.id=v."sentenceId" WHERE v.id=app."ApplicationQuestion"."sentenceVersionId" AND s.scope='PUBLIC')
     FOR UPDATE
   `;
   const row = rows[0];
