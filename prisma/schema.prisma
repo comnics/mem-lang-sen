@@ -94,7 +94,8 @@ enum AudioStatus {
 
 model AppUser {
   id          String     @id @db.Uuid
-  email       String     @unique
+  // Mutable Auth profile snapshot, never an account lookup or ownership key.
+  email       String
   displayName String?
   role        UserRole   @default(USER)
   status      UserStatus @default(ACTIVE)
