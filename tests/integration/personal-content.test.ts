@@ -37,6 +37,33 @@ describe('personal content / imports / existing learning integration',()=>{
   await db.appUser.deleteMany({where:{id:{in:owners}}});
  });
  afterAll(async()=>{if(db)await db.$disconnect();});
+ it('preserves non-default metadata through state-only and title-only PATCH with revision conflicts',async()=>{
+  const metadata={description:'보존할 설명',category:'FUNCTION' as const,level:'B1' as const};
+  const created=await personal.createPersonalSet(a,{title:'보존할 제목',...metadata});
+  await personal.addPersonalSentences(a,created.id,{expectedRevision:1,sentences:[value()]});
+  const archived=await personal.updatePersonalSet(a,created.id,{expectedRevision:2,status:'ARCHIVED'});
+  expect(archived).toMatchObject({...metadata,title:created.title,status:'ARCHIVED',revision:3});
+  expect(await db.studySet.findUniqueOrThrow({where:{id:created.id}})).toMatchObject({...metadata,title:created.title,status:'ARCHIVED',revision:3});
+  await expect(personal.updatePersonalSet(a,created.id,{expectedRevision:2,status:'ACTIVE'})).rejects.toMatchObject({status:409});
+  expect(await db.studySet.findUniqueOrThrow({where:{id:created.id}})).toMatchObject({...metadata,title:created.title,status:'ARCHIVED',revision:3});
+  const restored=await personal.updatePersonalSet(a,created.id,{expectedRevision:3,status:'ACTIVE'});
+  expect(restored).toMatchObject({...metadata,title:created.title,status:'ACTIVE',revision:4});
+  expect(await db.studySet.findUniqueOrThrow({where:{id:created.id}})).toMatchObject({...metadata,title:created.title,status:'ACTIVE',revision:4});
+  const renamed=await personal.updatePersonalSet(a,created.id,{expectedRevision:4,title:' 새 제목 '});
+  expect(renamed).toMatchObject({...metadata,title:'새 제목',status:'ACTIVE',revision:5});
+  await expect(personal.updatePersonalSet(a,created.id,{expectedRevision:4,title:'오래된 이름'})).rejects.toMatchObject({status:409});
+  expect(await db.studySet.findUniqueOrThrow({where:{id:created.id}})).toMatchObject({...metadata,title:'새 제목',status:'ACTIVE',revision:5});
+  const reset=await personal.updatePersonalSet(a,created.id,{expectedRevision:5,description:'',category:'SITUATION',level:'A1'});
+  expect(reset).toMatchObject({description:'',category:'SITUATION',level:'A1',title:'새 제목',status:'ACTIVE',revision:6});
+  expect(await db.studySet.findUniqueOrThrow({where:{id:created.id}})).toMatchObject({description:'',category:'SITUATION',level:'A1',title:'새 제목',status:'ACTIVE',revision:6});
+ });
+ it('preserves metadata when restoring an empty archived set to DRAFT',async()=>{
+  const metadata={title:'빈 세트',description:'설명 유지',category:'PATTERN' as const,level:'A2' as const};
+  const set=await personal.createPersonalSet(a,metadata);
+  expect(await personal.updatePersonalSet(a,set.id,{expectedRevision:1,status:'ARCHIVED'})).toMatchObject({...metadata,status:'ARCHIVED',revision:2});
+  expect(await personal.updatePersonalSet(a,set.id,{expectedRevision:2,status:'ACTIVE'})).toMatchObject({...metadata,status:'DRAFT',revision:3});
+  expect(await db.studySet.findUniqueOrThrow({where:{id:set.id}})).toMatchObject({...metadata,status:'DRAFT',revision:3});
+ });
  it.each([
   {scope:'PERSONAL',mode:'WRITTEN'}, {scope:'PERSONAL',mode:'SPOKEN'},
   {scope:'PUBLIC',mode:'WRITTEN'}, {scope:'PUBLIC',mode:'SPOKEN'},

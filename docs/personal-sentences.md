@@ -26,6 +26,12 @@
 
 1행 헤더: `prompt,target` 필수. 선택 `meaning,acceptedAnswers,hint,explanation,level`. 순서는 바꿔도 되며 헤더 없는 데이터 열, 알 수 없는/중복 헤더는 거절합니다. 텍스트 셀로 저장하세요. 수식은 계산 결과가 캐시되어 있어도 거절합니다. 숫자/날짜/오류/논리 셀, 하이퍼링크, 외부 참조, 매크로, 병합 셀, 손상 XML/ZIP, 암호화, XLS/XLSM은 지원하지 않습니다. 여러 시트는 자동 합치지 않습니다. 보안을 위해 선택하지 않은 시트와 XML 메타데이터도 위험 요소를 검사합니다. 스타일에 사용된 병합 셀도 보수적으로 거절합니다.
 
+### Node production 배포
+
+XLSX는 Node 24 worker를 사용하므로 Edge runtime으로 배포하지 않습니다. worker에 넘길 `sax` 경로는 `createRequire(<실행 앱 루트>/package.json)`로 실행 시점에 해석합니다. `import.meta.url` 기반 `require.resolve`는 Turbopack에서 숫자 module ID로 바뀔 수 있어 사용하지 않습니다. `next start`는 앱 루트에서, standalone은 배포된 `server.js`가 있는 디렉터리에서 실행하세요(standalone 서버도 이 디렉터리로 cwd를 설정합니다). 소스 머신의 경로나 별도 전역 node_modules를 참조하지 않습니다.
+
+`next.config.ts`의 `serverExternalPackages: ['pg', 'sax']` 및 preview route용 `outputFileTracingIncludes`를 유지하세요. eval worker의 동적 require는 자동 tracing만으로 충분하지 않습니다. 배포 artifact의 해당 route `.nft.json`에 실제 `sax/lib/sax.js`와 package metadata가 포함되는지 확인하고, production 서버에서 실제 예제 XLSX를 업로드해 미리보기/전체 저장을 검증해야 합니다. 단위 테스트만으로 bundling 또는 serverless provider 호환성을 검증했다고 간주하지 않습니다.
+
 ## TXT
 
 엄격 UTF-8(BOM 허용), LF 또는 CRLF. 잘못된 UTF-8과 NUL은 거절합니다. 빈 줄은 무시하고 원본 행 번호를 유지합니다. 구분자를 추측하지 않습니다.

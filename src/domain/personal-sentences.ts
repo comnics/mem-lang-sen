@@ -15,11 +15,19 @@ export const personalSentenceSchema = z.object({
   .refine((row) => row.acceptedAnswers.length <= 12, '정답을 포함한 허용 답안은 최대 12개입니다.');
 export type PersonalSentenceInput = z.input<typeof personalSentenceSchema>;
 export type PersonalSentenceValue = z.output<typeof personalSentenceSchema>;
+const personalSetFields = {
+  title: text(120).pipe(z.string().min(1)), description: text(500),
+  category: z.enum(['SITUATION', 'PATTERN', 'FUNCTION']),
+  level: z.enum(['A1', 'A2', 'B1']),
+};
 export const personalSetSchema = z.object({
-  title: text(120).pipe(z.string().min(1)), description: text(500).default(''),
-  category: z.enum(['SITUATION', 'PATTERN', 'FUNCTION']).default('SITUATION'),
-  level: z.enum(['A1', 'A2', 'B1']).default('A1'),
+  ...personalSetFields,
+  description: personalSetFields.description.default(''),
+  category: personalSetFields.category.default('SITUATION'),
+  level: personalSetFields.level.default('A1'),
 }).strict();
+// Zod 4 applies defaults inside optional fields: PATCH must use default-free fields.
+export const personalSetPatchSchema = z.object(personalSetFields).partial().strict();
 export const personalRowSchema = z.object({
   row: z.number().int().min(1).max(100000),
   prompt: z.string().max(4000).default(''), target: z.string().max(4000).default(''),

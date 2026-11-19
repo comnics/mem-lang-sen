@@ -1,16 +1,15 @@
 import 'server-only';
 import { Worker } from 'node:worker_threads';
-import { createRequire } from 'node:module';
 import { HttpError } from '@/server/http';
 import { personalRowsSchema, type PersonalRow } from '@/domain/personal-sentences';
 import { XLSX_WORKER_SOURCE } from './xlsx-worker-source';
-const resolve=createRequire(import.meta.url);
+import { resolveXlsxSaxPath } from './xlsx-sax-path';
 let active=0;
 export async function parsePersonalXlsx(bytes:Uint8Array,sheet?:string|null):Promise<{sheets:string[];sheet?:string;rows:PersonalRow[]}> {
   if(active>=2)throw new HttpError(429,'파일 처리 중입니다. 잠시 후 다시 시도해 주세요.');
   active++;
   try{return await new Promise((accept,reject)=>{
-    const worker=new Worker(XLSX_WORKER_SOURCE,{eval:true,workerData:{bytes,sheet,saxPath:resolve.resolve('sax')},resourceLimits:{maxOldGenerationSizeMb:64,maxYoungGenerationSizeMb:16,stackSizeMb:4}});
+    const worker=new Worker(XLSX_WORKER_SOURCE,{eval:true,workerData:{bytes,sheet,saxPath:resolveXlsxSaxPath()},resourceLimits:{maxOldGenerationSizeMb:64,maxYoungGenerationSizeMb:16,stackSizeMb:4}});
     let settled=false;
     const finish=(error?:Error,value?:{sheets:string[];sheet?:string;rows:PersonalRow[]})=>{if(settled)return;settled=true;clearTimeout(timer);void worker.terminate().finally(()=>{if(error)reject(error);else accept(value!);});};
     const timer=setTimeout(()=>finish(new HttpError(422,'파일 처리 시간이 초과되었습니다. 더 작은 파일로 다시 시도해 주세요.')),5000);

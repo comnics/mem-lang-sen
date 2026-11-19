@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { Prisma } from '@/generated/prisma/client';
 import { db } from '@/server/db';
 import { HttpError } from '@/server/http';
-import { personalSetSchema, personalSentenceSchema, personalDuplicateKey, type PersonalSentenceValue } from '@/domain/personal-sentences';
+import { personalSetSchema, personalSetPatchSchema, personalSentenceSchema, personalDuplicateKey, type PersonalSentenceValue } from '@/domain/personal-sentences';
 import { registerCohort } from './assessments';
 
 export async function lockPersonalUser(tx: Prisma.TransactionClient, userId: string) {
@@ -39,7 +39,7 @@ export async function createPersonalSet(userId:string,input:z.input<typeof perso
   const data=personalSetSchema.parse(input);
   return db.$transaction(async(tx)=>{await lockPersonalUser(tx,userId);return tx.studySet.create({data:{...data,scope:'PERSONAL',ownerId:userId,status:'DRAFT'}});});
 }
-export const updatePersonalSetSchema=personalSetSchema.partial().extend({expectedRevision:z.number().int().positive(),status:z.enum(['ACTIVE','ARCHIVED']).optional()}).strict();
+export const updatePersonalSetSchema=personalSetPatchSchema.extend({expectedRevision:z.number().int().positive(),status:z.enum(['ACTIVE','ARCHIVED']).optional()}).strict();
 export async function updatePersonalSet(userId:string,id:string,input:z.input<typeof updatePersonalSetSchema>) {
   const {expectedRevision,...data}=updatePersonalSetSchema.parse(input);
   return db.$transaction(async(tx)=>{

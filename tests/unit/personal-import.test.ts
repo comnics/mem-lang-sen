@@ -1,8 +1,11 @@
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { isAbsolute } from 'node:path';
 import { crc32,deflateRawSync } from 'node:zlib';
 import { describe,it,expect } from 'vitest';
 import { parsePersonalTxt } from '@/server/imports/txt';
 import { parsePersonalXlsx } from '@/server/imports/xlsx';
+import { resolveXlsxSaxPath } from '@/server/imports/xlsx-sax-path';
 import { readPersonalUpload } from '@/server/imports/read-upload';
 const enc=new TextEncoder();
 function zip(files:Record<string,string>){const data:Buffer[]=[],central:Buffer[]=[];let offset=0;for(const [name,text] of Object.entries(files)){const n=Buffer.from(name),raw=Buffer.from(text),compressed=deflateRawSync(raw),local=Buffer.alloc(30),entry=Buffer.alloc(46);local.writeUInt32LE(0x04034b50);local.writeUInt16LE(20,4);local.writeUInt16LE(8,8);local.writeUInt32LE(crc32(raw),14);local.writeUInt32LE(compressed.length,18);local.writeUInt32LE(raw.length,22);local.writeUInt16LE(n.length,26);entry.writeUInt32LE(0x02014b50);entry.writeUInt16LE(20,6);entry.writeUInt16LE(8,10);entry.writeUInt32LE(crc32(raw),16);entry.writeUInt32LE(compressed.length,20);entry.writeUInt32LE(raw.length,24);entry.writeUInt16LE(n.length,28);entry.writeUInt32LE(offset,42);data.push(local,n,compressed);central.push(entry,n);offset+=local.length+n.length+compressed.length;}const directory=Buffer.concat(central),end=Buffer.alloc(22);end.writeUInt32LE(0x06054b50);end.writeUInt16LE(Object.keys(files).length,8);end.writeUInt16LE(Object.keys(files).length,10);end.writeUInt32LE(directory.length,12);end.writeUInt32LE(offset,16);return Buffer.concat([...data,directory,end]);}
@@ -14,6 +17,13 @@ describe('personal TXT',()=>{
  it('rejects mixed TSV widths, more than 100 rows and oversized cells',()=>{expect(()=>parsePersonalTxt(enc.encode('질문\tA\n질문\tB\tC'),'TSV')).toThrow();expect(()=>parsePersonalTxt(enc.encode(Array(101).fill('Hi').join('\n')),'LINES')).toThrow();expect(()=>parsePersonalTxt(enc.encode('a'.repeat(4001)),'LINES')).toThrow();});
 });
 describe('bounded XLSX',()=>{
+ it('resolves a real absolute dependency filename usable by an unbundled worker',()=>{
+  const path=resolveXlsxSaxPath();
+  expect(typeof path).toBe('string');expect(isAbsolute(path)).toBe(true);
+  const sax=createRequire(import.meta.url)(path);
+  expect(typeof sax.parser).toBe('function');
+  expect(sax.parser(true)).toBeDefined();
+ });
  it('reads the real downloadable XLSX template',async()=>{const result=await parsePersonalXlsx(readFileSync('public/templates/personal-sentences.xlsx'));expect(result.rows).toHaveLength(2);expect(result.rows[0]).toMatchObject({prompt:'영수증을 요청한다',target:'Can I get a receipt?'});});
  it('reads static inline strings',async()=>expect((await parsePersonalXlsx(book())).rows[0]).toMatchObject({prompt:'질문',target:'Answer'}));
  it.each(['<c r="A2"><f>1+1</f><v>2</v></c>','<c r="A2" t="e"><v>#REF!</v></c>','<c r="H2" t="inlineStr"><is><t>Wide</t></is></c>','<mergeCell ref="A2:B2"/>','<hyperlink ref="A2"/>'])('rejects formulas/cache, errors, wide and merged/link cells',async cell=>{await expect(parsePersonalXlsx(book(cell))).rejects.toMatchObject({status:422});});
