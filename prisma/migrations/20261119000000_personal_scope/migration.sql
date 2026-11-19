@@ -1,0 +1,2 @@
+CREATE TYPE app."ContentScope" AS ENUM ('PUBLIC','PERSONAL');
+ALTER TYPE app."ContentStatus" ADD VALUE IF NOT EXISTS 'ACTIVE';

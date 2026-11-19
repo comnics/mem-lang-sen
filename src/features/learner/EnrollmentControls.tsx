@@ -74,7 +74,7 @@ export function EnrollmentControls({ setId, enrolled, paused }: { setId: string;
     <section className="card stack">
       {error ? <p className="notice notice-error" role="alert">{error}</p> : null}
       {isEnrolled && isPaused ? (
-        <p className="notice">이 세트는 오늘 자동 큐에서 제외됩니다. 아래 버튼으로 수동 학습은 계속 시작할 수 있습니다.</p>
+        <p className="notice">이 세트는 오늘 자동 큐에서 제외됩니다. 개인 세트는 자동 큐를 재개한 뒤 자율 연습을 시작하세요.</p>
       ) : null}
       <div className="form-actions">
         <button className="button-secondary" type="button" disabled={Boolean(pending)} onClick={() => updateEnrollment(!isEnrolled)}>

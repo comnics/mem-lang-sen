@@ -1,5 +1,15 @@
 @import 'tailwindcss';
 
+.personal-workspace, .personal-editor, .personal-editor fieldset { min-width: 0; }
+.personal-editor textarea, .personal-workspace input, .personal-workspace textarea, .personal-workspace select { width: 100%; max-width: 100%; box-sizing: border-box; }
+.personal-editor fieldset { margin: 0; }
+.personal-editor label { display: grid; gap: 8px; }
+.personal-workspace p, .personal-editor a { overflow-wrap: anywhere; }
+.personal-workspace .button-row { flex-wrap: wrap; }
+.personal-editor legend { font-weight: 700; }
+.personal-editor summary { cursor: pointer; }
+
+
 :root {
   --bg: #f6f5f0;
   --surface: #fffdf8;

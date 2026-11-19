@@ -10,7 +10,8 @@ const nextConfig: NextConfig = {
   experimental: { agentUpgrade: 'security' },
   allowedDevOrigins: ['127.0.0.1', '[::1]'],
   poweredByHeader: false,
-  serverExternalPackages: ['pg'],
+  serverExternalPackages: ['pg', 'sax'],
+  outputFileTracingIncludes: { '/api/v1/personal-sets/*/imports/preview': ['./node_modules/sax/**/*'] },
   async headers() {
     return [
       {

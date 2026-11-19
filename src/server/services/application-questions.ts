@@ -4,6 +4,9 @@ import { Prisma } from '@/generated/prisma/client';
 import { db } from '@/server/db';
 import { HttpError } from '@/server/http';
 
+// ACTIVE is a personal-set status, never a public application-question status.
+const applicationQuestionStatusSchema = z.enum(['DRAFT', 'REVIEW', 'PUBLISHED', 'ARCHIVED']);
+
 export const applicationQuestionInputSchema = z.object({
   sentenceVersionId: z.string().cuid(),
   prompt: z.string().trim().min(1).max(500),
@@ -14,10 +17,12 @@ export const applicationQuestionInputSchema = z.object({
 });
 
 export async function adminListApplicationQuestions() {
-  return db.applicationQuestion.findMany({
+  const questions = await db.applicationQuestion.findMany({
+    where: { sentenceVersion: { sentence: { scope: 'PUBLIC' } } },
     orderBy: [{ updatedAt: 'desc' }],
     include: { sentenceVersion: { select: { prompt: true, target: true } } },
   });
+  return questions.map((question) => ({ ...question, status: applicationQuestionStatusSchema.parse(question.status) }));
 }
 
 export async function adminCreateApplicationQuestion(input: z.infer<typeof applicationQuestionInputSchema>) {
@@ -48,18 +53,18 @@ export async function adminUpdateApplicationQuestion(id: string, input: z.infer<
 }
 
 async function requireSentenceVersion(id: string, tx: Prisma.TransactionClient | typeof db = db) {
-  const version = await tx.sentenceVersion.findUnique({ where: { id }, select: { id: true } });
+  const version = await tx.sentenceVersion.findFirst({ where: { id, sentence: { scope: 'PUBLIC' } }, select: { id: true } });
   if (!version) throw new HttpError(400, '존재하지 않는 문장 버전입니다.');
 }
 
 async function lockApplicationQuestion(tx: Prisma.TransactionClient, id: string) {
-  const rows = await tx.$queryRaw<{ id: string; status: 'DRAFT' | 'REVIEW' | 'PUBLISHED' | 'ARCHIVED' }[]>`
+  const rows = await tx.$queryRaw<{ id: string; status: unknown }[]>`
     SELECT id, status
     FROM app."ApplicationQuestion"
-    WHERE id = ${id}
+    WHERE id = ${id} AND EXISTS (SELECT 1 FROM app."SentenceVersion" v JOIN app."Sentence" s ON s.id=v."sentenceId" WHERE v.id=app."ApplicationQuestion"."sentenceVersionId" AND s.scope='PUBLIC')
     FOR UPDATE
   `;
   const row = rows[0];
   if (!row) throw new HttpError(404, '응용 문항을 찾을 수 없습니다.');
-  return row;
+  return { ...row, status: applicationQuestionStatusSchema.parse(row.status) };
 }

@@ -38,7 +38,15 @@ enum SetCategory {
   @@schema("app")
 }
 
+enum ContentScope {
+  PUBLIC
+  PERSONAL
+
+  @@schema("app")
+}
+
 enum ContentStatus {
+  ACTIVE
   DRAFT
   REVIEW
   PUBLISHED
@@ -103,6 +111,9 @@ model AppUser {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
+  personalSentences      Sentence[] @relation("SentenceOwner")
+  personalSets           StudySet[] @relation("SetOwner")
+  personalImports        PersonalSentenceImport[]
   enrollments            Enrollment[]
   studyPlan              StudyPlan?
   sessions               StudySession[]
@@ -166,6 +177,11 @@ model AudioAsset {
 }
 
 model Sentence {
+  scope ContentScope @default(PUBLIC)
+  ownerId String? @db.Uuid
+  owner AppUser? @relation("SentenceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  archivedAt DateTime?
+  @@index([ownerId, archivedAt])
   id        String   @id @default(cuid())
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -207,6 +223,12 @@ model SentenceVersion {
 }
 
 model StudySet {
+  scope ContentScope @default(PUBLIC)
+  ownerId String? @db.Uuid
+  owner AppUser? @relation("SetOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  revision Int @default(1)
+  imports PersonalSentenceImport[]
+  @@index([ownerId, status, updatedAt])
   id          String        @id @default(cuid())
   title       String
   description String
@@ -519,6 +541,30 @@ model JobRun {
   sent       Int       @default(0)
   failed     Int       @default(0)
 
+  @@schema("app")
+}
+
+model PersonalSentenceImport {
+  id String @id @default(cuid())
+  ownerId String @db.Uuid
+  setId String
+  owner AppUser @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  set StudySet @relation(fields: [setId], references: [id], onDelete: Restrict)
+  format String
+  status String @default("PREVIEW")
+  normalizedRows Json
+  errors Json
+  payloadHash String
+  revision Int @default(1)
+  setRevision Int
+  expiresAt DateTime
+  commitKey String? @db.Uuid
+  result Json?
+  createdAt DateTime @default(now())
+  committedAt DateTime?
+  @@unique([ownerId, commitKey])
+  @@index([expiresAt])
+  @@index([ownerId, setId])
   @@schema("app")
 }
 

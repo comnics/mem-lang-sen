@@ -8,7 +8,7 @@ export function api(handler:(request:Request,context:Context)=>Promise<Response>
  }catch(error){
   if(error instanceof HttpError)return Response.json({error:error.message},{status:error.status,headers:{'Cache-Control':'no-store'}});
   if(error instanceof ZodError)return Response.json({error:error.issues[0]?.message ?? '입력값을 확인해 주세요.'},{status:400,headers:{'Cache-Control':'no-store'}});
-  if(error instanceof SyntaxError)return Response.json({error:'요청 형식을 확인해 주세요.'},{status:400});
+  if(error instanceof SyntaxError)return Response.json({error:'요청 형식을 확인해 주세요.'},{status:400,headers:{'Cache-Control':'no-store'}});
   console.error('request_failed',{name:error instanceof Error?error.name:'UnknownError'});
   return Response.json({error:'요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.'},{status:500,headers:{'Cache-Control':'no-store'}});
  }

@@ -1,4 +1,5 @@
 import 'server-only';
+import { studyableSetWhere, studyableMemberWhere, canStudySet } from './content-access';
 import { Prisma } from '@/generated/prisma/client';
 import { masteryEvidence } from '@/domain/mastery';
 import { gradeWrittenAnswer } from '@/domain/grading';
@@ -26,7 +27,7 @@ export async function getDashboard(userId: string) {
       where: { userId },
       orderBy: { createdAt: 'desc' },
       take: 5,
-      include: { set: true, items: { include: { reviewEvent: true } } },
+      include: { set: true, items: { include: { reviewEvent: true, sentenceVersion: { select: { sentence: { select: { scope: true } } } } } } },
     }),
   ]);
 
@@ -42,7 +43,7 @@ export async function getHistory(userId: string) {
   const sessions = await db.studySession.findMany({
     where: { userId },
     orderBy: { createdAt: 'desc' },
-    include: { set: true, items: { include: { reviewEvent: true } } },
+    include: { set: true, items: { include: { reviewEvent: true, sentenceVersion: { select: { sentence: { select: { scope: true } } } } } } },
   });
   return sessions.map(historyDto);
 }
@@ -56,7 +57,7 @@ export async function getMySentences(userId: string) {
     db.reviewEvent.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
-      include: { item: { include: { session: true, sentenceVersion: true } } },
+      include: { item: { include: { session: true, sentenceVersion: { include: { sentence: { select: { scope: true } } } } } } },
     }),
     db.userSentencePreference.findMany({ where: { userId } }),
     db.reviewEvent.findMany({
@@ -65,7 +66,7 @@ export async function getMySentences(userId: string) {
       orderBy: { performedAt: 'asc' },
     }),
   ]);
-  const practicedVersionByState = new Map<string, { id: string; prompt: string; meaning: string }>();
+  const practicedVersionByState = new Map<string, { id: string; prompt: string; meaning: string; source: 'PUBLIC' | 'PERSONAL' }>();
   for (const event of events) {
     if (event.form !== 'RECALL') continue;
     const key = sentenceStateKey(event.item.sentenceId, event.item.session.mode);
@@ -74,6 +75,7 @@ export async function getMySentences(userId: string) {
         id: event.item.sentenceVersion.id,
         prompt: event.item.sentenceVersion.prompt,
         meaning: event.item.sentenceVersion.meaning,
+        source: event.item.sentenceVersion.sentence.scope,
       });
     }
   }
@@ -86,6 +88,7 @@ export async function getMySentences(userId: string) {
       id: sentenceStateKey(state.sentenceId, state.mode),
       sentenceId: state.sentenceId,
       sentenceVersionId: version?.id ?? null,
+      source: version?.source ?? 'PUBLIC',
       mode: state.mode,
       prompt: version?.prompt ?? '',
       meaning: version?.meaning ?? '',
@@ -104,17 +107,17 @@ export async function getMySentences(userId: string) {
 }
 
 export async function enrollSet(userId: string, setId: string) {
-  const set = await db.studySet.findFirst({ where: { id: setId, status: 'PUBLISHED' } });
-  if (!set) throw new HttpError(404, '발행된 세트를 찾을 수 없습니다.');
   return db.$transaction(
     async (tx) => {
       await lockUser(tx, userId);
+      const set = await tx.studySet.findFirst({ where: { id: setId, ...studyableSetWhere(userId) } });
+      if (!set) throw new HttpError(404, '학습 가능한 세트를 찾을 수 없습니다.');
       const enrollment = await tx.enrollment.upsert({
         where: { userId_setId: { userId, setId } },
         update: {},
         create: { userId, setId },
       });
-      const members = await tx.setSentence.findMany({ where: { setId }, select: { sentenceVersion: { select: { sentenceId: true } } } });
+      const members = await tx.setSentence.findMany({ where: { setId, ...studyableMemberWhere(userId) }, select: { sentenceVersion: { select: { sentenceId: true } } } });
       await registerCohort(tx, userId, members.map((member) => member.sentenceVersion.sentenceId), new Date());
       return enrollment;
     },
@@ -161,6 +164,7 @@ export async function createStudySession(userId: string, input: { setId: string;
           set: {
             include: {
               sentences: {
+                where: studyableMemberWhere(userId),
                 orderBy: { order: 'asc' },
                 include: { sentenceVersion: true },
               },
@@ -168,7 +172,7 @@ export async function createStudySession(userId: string, input: { setId: string;
           },
         },
       });
-      if (!enrollment || enrollment.set.status !== 'PUBLISHED') throw new HttpError(403, '선택한 세트만 학습할 수 있습니다.');
+      if (!enrollment || (enrollment.set.scope === 'PERSONAL' && enrollment.paused) || !canStudySet(userId, enrollment.set)) throw new HttpError(403, '선택한 세트만 학습할 수 있습니다.');
       if (enrollment.set.sentences.length === 0) throw new HttpError(400, '학습할 문장이 없습니다.');
 
       return tx.studySession.create({
@@ -203,7 +207,7 @@ export async function getSession(userId: string, id: string, now = new Date()) {
     where: { id, userId },
     include: {
       set: true,
-      items: { orderBy: { position: 'asc' }, include: { reviewEvent: true, assessments: { select: { id: true } } } },
+      items: { orderBy: { position: 'asc' }, include: { reviewEvent: true, sentenceVersion: { select: { sentence: { select: { scope: true } } } }, assessments: { select: { id: true } } } },
     },
   });
   if (!session) throw new HttpError(404, '학습 세션을 찾을 수 없습니다.');
@@ -213,6 +217,7 @@ export async function getSession(userId: string, id: string, now = new Date()) {
     userId: session.userId,
     purpose: session.purpose,
     setTitle: session.set?.title ?? '오늘 복습',
+    source: session.set?.scope ?? 'PUBLIC',
     mode: session.mode,
     status: usable ? session.status : 'ABANDONED',
     studyDate: session.studyDate,
@@ -223,6 +228,7 @@ export async function getSession(userId: string, id: string, now = new Date()) {
       meaning: item.meaning,
       position: item.position,
       answered: Boolean(item.reviewEvent),
+      source: item.sentenceVersion.sentence.scope,
       form: item.form,
       assessmentLocked: session.purpose === 'ASSESSMENT' || item.assessments.length > 0,
     })),
@@ -571,15 +577,16 @@ function historyDto(session: {
   createdAt: Date;
   mode: StudyMode;
   status: 'ACTIVE' | 'COMPLETED' | 'ABANDONED';
-  set: { title: string } | null;
+  set: { title: string; scope: 'PUBLIC' | 'PERSONAL' } | null;
   studyDate?: string | null;
   timezone?: string | null;
-  items: { reviewEvent: { correct: boolean | null; result: string; studyDate?: string | null; timezone?: string | null } | null }[];
+  items: { sentenceVersion: { sentence: { scope: 'PUBLIC' | 'PERSONAL' } }; reviewEvent: { correct: boolean | null; result: string; studyDate?: string | null; timezone?: string | null } | null }[];
 }) {
   return {
     id: session.id,
     createdAt: session.createdAt.toISOString(),
     setTitle: session.set?.title ?? '오늘 복습',
+    source: session.items.some(item => item.sentenceVersion.sentence.scope === 'PERSONAL') ? 'PERSONAL' : 'PUBLIC',
     mode: session.mode,
     correctCount: session.items.filter((item) => item.reviewEvent?.result === 'CORRECT').length,
     answeredCount: session.items.filter((item) => item.reviewEvent).length,

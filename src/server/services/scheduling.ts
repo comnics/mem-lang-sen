@@ -1,4 +1,5 @@
 import 'server-only';
+import { studyableSetWhere, studyableMemberWhere } from './content-access';
 import { Prisma } from '@/generated/prisma/client';
 import { db } from '@/server/db';
 import { HttpError } from '@/server/http';
@@ -73,8 +74,8 @@ async function buildQueue(tx: Database, userId: string, mode: StudyMode, now: Da
   const start = dateStart(today, plan.timezone);
   const end = dateStart(addCalendarDays(today, 1), plan.timezone);
   const [enrollments, states, preferences, dayEvents, pendingSessions, lastEvent] = await Promise.all([
-    tx.enrollment.findMany({ where: { userId, paused: false, set: { status: 'PUBLISHED' } }, orderBy: [{ createdAt: 'asc' }, { setId: 'asc' }], include: {
-      set: { include: { sentences: { orderBy: { order: 'asc' }, include: { sentenceVersion: { select: { id: true, sentenceId: true, prompt: true, meaning: true } } } } } },
+    tx.enrollment.findMany({ where: { userId, paused: false, set: studyableSetWhere(userId) }, orderBy: [{ createdAt: 'asc' }, { setId: 'asc' }], include: {
+      set: { include: { sentences: { where: studyableMemberWhere(userId), orderBy: { order: 'asc' }, include: { sentenceVersion: { select: { id: true, sentenceId: true, prompt: true, meaning: true } } } } } },
     } }),
     tx.userSentenceState.findMany({ where: { userId, mode } }),
     tx.userSentencePreference.findMany({ where: { userId } }),

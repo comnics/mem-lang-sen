@@ -1,8 +1,10 @@
 import 'server-only';
+import { studyableSetWhere, studyableMemberWhere } from './content-access';
 import type { Prisma } from '@/generated/prisma/client';
 import { localDate } from '@/domain/scheduling';
 
-// An automatic allocation belongs to one local day and currently active content.
+// Automatic allocations also enforce the local day and today's hidden preference.
+// PRACTICE still checks content access, but hiding from today's queue is not a ban.
 export async function isDailySessionUsable(
   tx: Prisma.TransactionClient,
   userId: string,
@@ -10,15 +12,16 @@ export async function isDailySessionUsable(
   sentenceIds: string[],
   now: Date,
 ) {
-  if (!['DAILY', 'ASSESSMENT'].includes(session.purpose)) return true;
+  const automatic = ['DAILY', 'ASSESSMENT'].includes(session.purpose);
   const plan = await tx.studyPlan.findUnique({ where: { userId } });
-  if (!plan || plan.paused || plan.timezone !== session.timezone || session.studyDate !== localDate(now, plan.timezone)) return false;
+  if (automatic && (!plan || plan.paused || plan.timezone !== session.timezone || session.studyDate !== localDate(now, plan.timezone))) return false;
   const [memberships, hidden] = await Promise.all([
     tx.setSentence.findMany({ where: {
-      sentenceVersion: { sentenceId: { in: sentenceIds } },
-      set: { status: 'PUBLISHED', enrollments: { some: { userId, paused: false } } },
+      ...studyableMemberWhere(userId),
+      sentenceVersion: { sentenceId: { in: sentenceIds }, sentence: { archivedAt: null, OR: [{ scope: 'PUBLIC' }, { scope: 'PERSONAL', ownerId: userId }] } },
+      set: { AND: [studyableSetWhere(userId), { enrollments: { some: { userId, ...(automatic ? { paused: false } : {}) } } }, ...(automatic ? [] : [{ OR: [{ scope: 'PUBLIC' as const }, { enrollments: { some: { userId, paused: false } } }] }])] },
     }, select: { sentenceVersion: { select: { sentenceId: true } } } }),
-    tx.userSentencePreference.count({ where: { userId, hidden: true, sentenceId: { in: sentenceIds } } }),
+    automatic ? tx.userSentencePreference.count({ where: { userId, hidden: true, sentenceId: { in: sentenceIds } } }) : Promise.resolve(0),
   ]);
   const available = new Set(memberships.map((membership) => membership.sentenceVersion.sentenceId));
   return hidden === 0 && sentenceIds.every((id) => available.has(id));

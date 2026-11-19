@@ -17,6 +17,7 @@ export default async function SentencesPage() {
       <PageHeader eyebrow="내 문장" title="연습한 문장">
         입력 회상과 말하기 자기확인에서 만난 문장을 모아 보여줍니다.
       </PageHeader>
+      <nav className="button-row" aria-label="내 문장 종류"><span aria-current="page">연습 기록</span><Link className="button-secondary" href="/sentences/personal">직접 만든 문장</Link></nav>
       {sentences.length ? (
         <section className="list">
           {sentences.map((sentence) => (
@@ -25,6 +26,7 @@ export default async function SentencesPage() {
                 <span className="badge">{sentence.mode === 'WRITTEN' ? '입력 회상' : '말하기'}</span>
                 <span className="badge badge-accent">{resultCopy(sentence.lastResult)}</span>
               </div>
+              {sentence.source === 'PERSONAL' ? <span className="badge">개인 문장</span> : null}
               <h2>{sentence.prompt}</h2>
               <p className="muted">{sentence.meaning}</p>
               <span className="muted">최근 연습 {formatDate(sentence.lastPracticedAt, plan?.timezone)}</span>

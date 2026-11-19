@@ -47,7 +47,7 @@ function adminSetDto(set: {
   description: string;
   category: 'SITUATION' | 'PATTERN' | 'FUNCTION';
   level: 'A1' | 'A2' | 'B1';
-  status: 'DRAFT' | 'REVIEW' | 'PUBLISHED' | 'ARCHIVED';
+  status: 'DRAFT' | 'REVIEW' | 'PUBLISHED' | 'ARCHIVED' | 'ACTIVE';
   createdAt: Date;
   updatedAt: Date;
   publishedAt: Date | null;
@@ -63,7 +63,7 @@ function adminSetDto(set: {
 
 async function requirePublishedSet(setId: string) {
   const set = await db.studySet.findFirst({
-    where: { id: setId, status: 'PUBLISHED' },
+    where: { id: setId, scope: 'PUBLIC', status: 'PUBLISHED' },
     include: {
       sentences: {
         orderBy: { order: 'asc' },
@@ -78,7 +78,7 @@ async function requirePublishedSet(setId: string) {
 export async function listSets(userId?: string) {
   const [sets, enrollments] = await Promise.all([
     db.studySet.findMany({
-      where: { status: 'PUBLISHED' },
+      where: { scope: 'PUBLIC', status: 'PUBLISHED' },
       orderBy: [{ publishedAt: 'desc' }, { createdAt: 'desc' }],
       include: { _count: { select: { sentences: true } } },
     }),
@@ -121,6 +121,7 @@ export async function getSet(id: string, userId?: string) {
 
 export async function adminListSets() {
   const sets = await db.studySet.findMany({
+    where: { scope: 'PUBLIC' },
     orderBy: [{ updatedAt: 'desc' }],
     include: { sentences: { orderBy: { order: 'asc' } } },
   });
@@ -129,6 +130,7 @@ export async function adminListSets() {
 
 export async function adminListSentences() {
   const versions = await db.sentenceVersion.findMany({
+    where: { sentence: { scope: 'PUBLIC' } },
     orderBy: [{ createdAt: 'desc' }],
     include: { audioAsset: true },
   });
@@ -155,7 +157,7 @@ export async function adminUpdateSentence(id: string, input: z.infer<typeof sent
   const data = sentenceInputSchema.parse(input);
   if (data.audioAssetId) await requireReadyAudio(data.audioAssetId);
   return db.$transaction(async (tx) => {
-    const current = await tx.sentenceVersion.findUnique({ where: { id } });
+    const current = await tx.sentenceVersion.findFirst({ where: { id, sentence: { scope: 'PUBLIC' } } });
     if (!current) throw new HttpError(404, '문장을 찾을 수 없습니다.');
     await lockSentence(tx, current.sentenceId);
     const latest = await tx.sentenceVersion.findFirst({
@@ -386,7 +388,7 @@ async function requireReadyAudio(id: string) {
 
 async function requireSentenceVersions(ids: string[]) {
   if (new Set(ids).size !== ids.length) throw new HttpError(400, '중복된 문장이 포함되어 있습니다.');
-  const versions = await db.sentenceVersion.findMany({ where: { id: { in: ids } }, select: { id: true } });
+  const versions = await db.sentenceVersion.findMany({ where: { id: { in: ids }, sentence: { scope: 'PUBLIC' } }, select: { id: true } });
   if (versions.length !== new Set(ids).size) throw new HttpError(400, '존재하지 않는 문장이 포함되어 있습니다.');
 }
 
@@ -414,7 +416,7 @@ async function lockSet(tx: Prisma.TransactionClient, setId: string) {
       description: string;
       category: 'SITUATION' | 'PATTERN' | 'FUNCTION';
       level: 'A1' | 'A2' | 'B1';
-      status: 'DRAFT' | 'REVIEW' | 'PUBLISHED' | 'ARCHIVED';
+      status: 'DRAFT' | 'REVIEW' | 'PUBLISHED' | 'ARCHIVED' | 'ACTIVE';
       createdAt: Date;
       updatedAt: Date;
       publishedAt: Date | null;
@@ -422,7 +424,7 @@ async function lockSet(tx: Prisma.TransactionClient, setId: string) {
   >`
     SELECT id, title, description, category, level, status, "createdAt", "updatedAt", "publishedAt"
     FROM app."StudySet"
-    WHERE id = ${setId}
+    WHERE id = ${setId} AND scope = 'PUBLIC'
     FOR UPDATE
   `;
   const set = rows[0];

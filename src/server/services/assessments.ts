@@ -1,4 +1,5 @@
 import 'server-only';
+import { studyableSetWhere, studyableMemberWhere } from './content-access';
 import { Prisma } from '@/generated/prisma/client';
 import {
   ASSESSMENT_ITEM_LIMIT,
@@ -402,7 +403,7 @@ async function backfillCohorts(tx: Database, userId: string) {
 async function ensureWeeklyAssignments(tx: Database, userId: string, now: Date, timezone: string) {
   const window = weeklyWindow(now, timezone);
   if (await tx.assessmentAssignment.count({ where: { cohort: { userId }, kind: 'WEEKLY', periodKey: { in: [window.periodKey, `${window.periodKey}:APPLICATION`] } } })) return;
-  const versions = [...(await currentPublishedVersions(tx, userId)).values()];
+  const versions = [...(await currentStudyableVersions(tx, userId)).values()];
   const practicedIds = new Set((await tx.reviewEvent.findMany({
     where: { userId, item: { session: { mode: 'WRITTEN' }, form: 'RECALL' } },
     select: { item: { select: { sentenceId: true } } },
@@ -435,7 +436,7 @@ type PublishedVersion = {
 };
 
 async function presentationVersions(tx: Database, userId: string, assignments: AssessmentAssignmentWithCohort[]) {
-  const eligible = await currentPublishedVersions(tx, userId, assignments.map((assignment) => assignment.cohort.sentenceId));
+  const eligible = await currentStudyableVersions(tx, userId, assignments.map((assignment) => assignment.cohort.sentenceId));
   const retentionBaselineIds = assignments
     .filter((assignment) => assignment.kind !== 'WEEKLY' && assignment.cohort.baselineVersionId && eligible.has(assignment.cohort.sentenceId))
     .map((assignment) => assignment.cohort.baselineVersionId!);
@@ -467,14 +468,15 @@ async function versionsById(tx: Database, ids: string[]) {
   }]));
 }
 
-async function currentPublishedVersions(tx: Database, userId: string, sentenceIds?: string[]): Promise<Map<string, PublishedVersion>> {
+async function currentStudyableVersions(tx: Database, userId: string, sentenceIds?: string[]): Promise<Map<string, PublishedVersion>> {
   const enrollments = await tx.enrollment.findMany({
-      where: { userId, paused: false, set: { status: 'PUBLISHED' } },
+      where: { userId, paused: false, set: studyableSetWhere(userId) },
       orderBy: [{ createdAt: 'asc' }, { setId: 'asc' }],
       include: {
         set: {
           include: {
             sentences: {
+              where: studyableMemberWhere(userId),
               orderBy: { order: 'asc' },
               include: {
                 sentenceVersion: {
@@ -510,7 +512,7 @@ async function currentPublishedVersions(tx: Database, userId: string, sentenceId
 }
 
 async function canCreateWeeklyAssessment(tx: Database, userId: string) {
-  const versions = await currentPublishedVersions(tx, userId);
+  const versions = await currentStudyableVersions(tx, userId);
   if (!versions.size) return false;
   const reviewed = await tx.reviewEvent.findFirst({
     where: {

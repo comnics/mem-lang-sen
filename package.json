@@ -38,6 +38,7 @@
     "pg": "^8.16.3",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "sax": "1.6.1",
     "server-only": "^0.0.1",
     "web-push": "3.6.7",
     "zod": "^4.0.0"
@@ -47,6 +48,7 @@
     "@tailwindcss/postcss": "^4.1.0",
     "@types/node": "^24.0.0",
     "@types/pg": "^8.15.0",
+    "@types/sax": "1.2.7",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/web-push": "3.6.4",

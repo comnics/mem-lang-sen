@@ -27,6 +27,7 @@ export default async function HistoryPage() {
                 <span className="muted">{formatDate(session.createdAt, session.timezone ?? 'Asia/Seoul')}</span>
               </div>
               <h2>{session.setTitle}</h2>
+              {session.source === 'PERSONAL' ? <span className="badge">개인 문장</span> : null}
               {session.studyDate ? <p className="muted">시작일 {session.studyDate}</p> : null}
               <p className="muted">
                 {statusCopy(session.status)} · {session.mode === 'SPOKEN' ? `자기확인 ${session.answeredCount} / ${session.totalCount}문장` : `정답 ${session.correctCount} / ${session.totalCount}`}

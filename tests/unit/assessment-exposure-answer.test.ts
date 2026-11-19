@@ -25,17 +25,28 @@ describe('assessment submission rechecks exposure under the user lock', () => {
   });
 
   it('allows clean assessment answers to reach the existing grading path', async () => {
-    fixture([], false);
+    const tx = fixture([], false);
     await expect(answerSessionItem('user', 'session', { itemId: 'item', eventId: 'event', answer: 'Hello' }, now)).rejects.toThrow('grading path reached');
+    expect(tx.userSentencePreference.findMany).toHaveBeenCalledWith({ where: {
+      userId: 'user', sentence: { scope: 'PERSONAL', ownerId: 'user' },
+      lastExposedAt: { gte: new Date('2026-10-13T15:00:00Z'), lt: new Date('2026-10-14T15:00:00Z') },
+    }, select: { sentenceId: true } });
+  });
+
+  it('rejects same-day personal authoring exposure before grading', async () => {
+    const tx = fixture([], false, true);
+    await expect(answerSessionItem('user', 'session', { itemId: 'item', eventId: 'event', answer: 'Hello' }, now)).rejects.toMatchObject({ status: 409 });
+    expect(tx.reviewEvent.create).not.toHaveBeenCalled();
+    expect(tx.userSentenceState.findUnique).not.toHaveBeenCalled();
   });
 });
 
-function fixture(exposures: { kind: string }[], siblingExposure: boolean) {
+function fixture(exposures: { kind: string }[], siblingExposure: boolean, authoredExposure = false) {
   const tx = {
     $queryRaw: vi.fn(async () => [{ id: 'user' }]),
     studyPlan: { findUnique: vi.fn(async () => ({ timezone: 'Asia/Seoul', paused: false })) },
     setSentence: { findMany: vi.fn(async () => [{ sentenceVersion: { sentenceId: 'sentence' } }]) },
-    userSentencePreference: { count: vi.fn(async () => 0) },
+    userSentencePreference: { count: vi.fn(async () => 0), findMany: vi.fn(async () => authoredExposure ? [{ sentenceId: 'sentence' }] : []) },
     userSentenceState: { findUnique: vi.fn(async () => { throw new Error('grading path reached'); }) },
     reviewEvent: { findUnique: vi.fn(async () => null), create: vi.fn() },
     exposureEvent: { findMany: vi.fn(async () => siblingExposure ? [{ item: { sentenceId: 'sentence' } }] : []) },
