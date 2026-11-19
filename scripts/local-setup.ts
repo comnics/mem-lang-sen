@@ -4,6 +4,7 @@ import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { parse } from 'dotenv';
 import { Client } from 'pg';
 import { createClient } from '@supabase/supabase-js';
+import { audioBucketOptions } from '../src/domain/audio-policy';
 
 // Only the local Supabase CLI is a source for credentials. Never provision demo users remotely.
 const status = JSON.parse(execFileSync('pnpm', ['exec', 'supabase', 'status', '-o', 'json'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })) as Record<string, string>;
@@ -43,7 +44,7 @@ try {
   const supabase = createClient(apiUrl, secret, { auth: { persistSession: false, autoRefreshToken: false } });
   const { data: buckets, error: listError } = await supabase.storage.listBuckets();
   if (listError) throw listError;
-  const bucketOptions = { public: false, fileSizeLimit: 10 * 1024 * 1024, allowedMimeTypes: ['audio/mpeg', 'audio/wav', 'audio/ogg'] };
+  const bucketOptions = audioBucketOptions();
   const bucketResult = buckets?.some((bucket) => bucket.id === 'sentence-audio')
     ? await supabase.storage.updateBucket('sentence-audio', bucketOptions)
     : await supabase.storage.createBucket('sentence-audio', bucketOptions);

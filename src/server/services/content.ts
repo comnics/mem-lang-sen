@@ -5,10 +5,11 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { parseSentenceCsv } from '@/domain/csv-import';
 import { db } from '@/server/db';
 import { HttpError } from '@/server/http';
+import { AUDIO_MIME_TYPES, MAX_AUDIO_SIZE } from '@/domain/audio-policy';
 
 const AUDIO_BUCKET = process.env.SUPABASE_AUDIO_BUCKET ?? 'sentence-audio';
-const allowedAudioTypes = new Set(['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/ogg']);
-const maxAudioSize = 10 * 1024 * 1024;
+const allowedAudioTypes = new Set<string>(AUDIO_MIME_TYPES);
+const maxAudioSize = MAX_AUDIO_SIZE;
 
 export const sentenceInputSchema = z.object({
   prompt: z.string().trim().min(1).max(500),
